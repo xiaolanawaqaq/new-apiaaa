@@ -45,6 +45,35 @@ export function getApiKeyFormSchema(t: TFunction, maxAutoGroups = 5) {
       auto_groups: z.array(z.string()),
       cross_group_retry: z.boolean().optional(),
       tokenCount: z.number().min(1).optional(),
+      channel_id: z
+        .number()
+        .int(t('Channel ID must be an integer'))
+        .min(0, t('Channel ID must be zero or greater'))
+        .optional(),
+      hourly_input_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
+      hourly_output_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
+      daily_input_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
+      daily_output_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
+      monthly_input_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
+      monthly_output_limit: z
+        .number()
+        .min(0, t('Limit must be zero or greater'))
+        .optional(),
     })
     .superRefine((data, ctx) => {
       if (data.group === 'auto') {
@@ -115,6 +144,13 @@ export const API_KEY_FORM_DEFAULT_VALUES: ApiKeyFormValues = {
   auto_groups: [],
   cross_group_retry: true,
   tokenCount: 1,
+  channel_id: 0,
+  hourly_input_limit: 0,
+  hourly_output_limit: 0,
+  daily_input_limit: 0,
+  daily_output_limit: 0,
+  monthly_input_limit: 0,
+  monthly_output_limit: 0,
 }
 
 export function getApiKeyFormDefaultValues(
@@ -157,6 +193,13 @@ export function transformFormDataToPayload(
         ? data.auto_groups
         : [],
     cross_group_retry: data.group === 'auto' ? !!data.cross_group_retry : false,
+    channel_id: data.channel_id || 0,
+    hourly_input_limit: data.hourly_input_limit || 0,
+    hourly_output_limit: data.hourly_output_limit || 0,
+    daily_input_limit: data.daily_input_limit || 0,
+    daily_output_limit: data.daily_output_limit || 0,
+    monthly_input_limit: data.monthly_input_limit || 0,
+    monthly_output_limit: data.monthly_output_limit || 0,
   }
 }
 
@@ -194,5 +237,12 @@ export function transformApiKeyToFormDefaults(
     auto_groups: autoGroups,
     cross_group_retry: !!apiKey.cross_group_retry,
     tokenCount: 1,
+    channel_id: apiKey.channel_id ?? 0,
+    hourly_input_limit: apiKey.hourly_input_limit ?? 0,
+    hourly_output_limit: apiKey.hourly_output_limit ?? 0,
+    daily_input_limit: apiKey.daily_input_limit ?? 0,
+    daily_output_limit: apiKey.daily_output_limit ?? 0,
+    monthly_input_limit: apiKey.monthly_input_limit ?? 0,
+    monthly_output_limit: apiKey.monthly_output_limit ?? 0,
   }
 }

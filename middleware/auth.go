@@ -501,6 +501,15 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	c.Set("token_key", token.Key)
 	c.Set("token_name", token.Name)
 	c.Set("token_unlimited_quota", token.UnlimitedQuota)
+	c.Set("token_channel_id", token.ChannelId)
+	if token.ChannelId > 0 {
+		service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
+			ChannelId: token.ChannelId,
+			Source:    dto.PinSourceToken,
+			Rank:      dto.PinRankToken,
+			RetryMode: dto.PinRetrySameChannel,
+		})
+	}
 	if !token.UnlimitedQuota {
 		c.Set("token_quota", token.RemainQuota)
 	}
@@ -529,7 +538,12 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 				abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidChannelId))
 				return fmt.Errorf("invalid specific channel id")
 			}
+			if token.ChannelId > 0 && token.ChannelId != id {
+				abortWithOpenAiMessage(c, http.StatusForbidden, "令牌已绑定其他渠道，禁止切换渠道", types.ErrorCodeAccessDenied)
+				return fmt.Errorf("token is bound to channel %d", token.ChannelId)
+			}
 			service.GetChannelConstraints(c).AddPin(dto.ChannelPin{
+
 				ChannelId: id,
 				Source:    dto.PinSourceToken,
 				Rank:      dto.PinRankToken,

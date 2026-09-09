@@ -22,6 +22,7 @@ func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+	service.RegisterSystemTaskHandler(channelHealthProbeHandler{})
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -149,6 +150,45 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+// channelHealthProbeHandler 周期探测因连续 temporary 失败被自动禁用的渠道，
+// 复用渠道测试能力（TestModel/渠道默认模型），不走正常用户计费。探测成功
+// 自动启用并清零计数；balance_exhausted 渠道永不探测（Enabled 已过滤，
+// Run 内再次校验防御并发修改）。
+type channelHealthProbeHandler struct{}
+
+func (channelHealthProbeHandler) Type() string { return model.SystemTaskTypeChannelProbe }
+
+func (channelHealthProbeHandler) Enabled() bool {
+	if !common.AutomaticDisableChannelEnabled {
+		return false
+	}
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		return false
+	}
+	for _, channel := range channels {
+		if service.ChannelDueForProbe(channel, time.Now()) {
+			return true
+		}
+	}
+	return false
+}
+
+func (channelHealthProbeHandler) Interval() time.Duration {
+	return service.ChannelHealthProbeInterval()
+}
+
+func (channelHealthProbeHandler) NewPayload() any { return nil }
+
+func (channelHealthProbeHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary, err := runChannelHealthProbes(ctx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 

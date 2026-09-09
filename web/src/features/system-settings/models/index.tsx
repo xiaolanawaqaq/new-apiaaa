@@ -65,6 +65,8 @@ const defaultModelSettings: ModelSettings = {
   'group_ratio_setting.group_special_usable_group': '{}',
   RetryTimes: 0,
   ChannelDisableThreshold: '',
+  ChannelFailureThreshold: 3,
+  ChannelHealthProbeIntervalSeconds: 60,
   AutomaticDisableChannelEnabled: false,
   AutomaticEnableChannelEnabled: false,
   AutomaticDisableKeywords: '',

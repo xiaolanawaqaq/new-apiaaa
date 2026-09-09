@@ -14,7 +14,23 @@ import (
 type Token struct {
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
+	ChannelId          int            `json:"channel_id" gorm:"default:0;index"`
 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	HourlyInputLimit   int64          `json:"hourly_input_limit" gorm:"default:0"`
+	HourlyOutputLimit  int64          `json:"hourly_output_limit" gorm:"default:0"`
+	DailyInputLimit    int64          `json:"daily_input_limit" gorm:"default:0"`
+	DailyOutputLimit   int64          `json:"daily_output_limit" gorm:"default:0"`
+	MonthlyInputLimit  int64          `json:"monthly_input_limit" gorm:"default:0"`
+	MonthlyOutputLimit int64          `json:"monthly_output_limit" gorm:"default:0"`
+	HourlyInputUsed    int64          `json:"hourly_input_used" gorm:"default:0"`
+	HourlyOutputUsed   int64          `json:"hourly_output_used" gorm:"default:0"`
+	DailyInputUsed     int64          `json:"daily_input_used" gorm:"default:0"`
+	DailyOutputUsed    int64          `json:"daily_output_used" gorm:"default:0"`
+	MonthlyInputUsed   int64          `json:"monthly_input_used" gorm:"default:0"`
+	MonthlyOutputUsed  int64          `json:"monthly_output_used" gorm:"default:0"`
+	HourlyPeriodStart  int64          `json:"hourly_period_start" gorm:"default:0"`
+	DailyPeriodStart   int64          `json:"daily_period_start" gorm:"default:0"`
+	MonthlyPeriodStart int64          `json:"monthly_period_start" gorm:"default:0"`
 	Status             int            `json:"status" gorm:"default:1"`
 	Name               string         `json:"name" gorm:"index" `
 	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
@@ -312,7 +328,8 @@ func (token *Token) Update() (err error) {
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
-	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
+	return DB.Model(token).Select("name", "status", "channel_id", "expired_time", "remain_quota", "unlimited_quota",
+		"hourly_input_limit", "hourly_output_limit", "daily_input_limit", "daily_output_limit", "monthly_input_limit", "monthly_output_limit",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
 }
 

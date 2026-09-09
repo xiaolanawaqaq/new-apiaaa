@@ -78,6 +78,16 @@ const createRoutingReliabilitySchema = (
     .object({
       RetryTimes: z.coerce.number().min(0).max(10),
       ChannelDisableThreshold: numericString,
+      ChannelFailureThreshold: z.coerce
+        .number()
+        .int(t('Enter a positive integer'))
+        .min(1, t('Failure threshold must be between 1 and 100'))
+        .max(100, t('Failure threshold must be between 1 and 100')),
+      ChannelHealthProbeIntervalSeconds: z.coerce
+        .number()
+        .int(t('Enter a positive integer'))
+        .min(10, t('Probe interval must be between 10 and 86400 seconds'))
+        .max(86400, t('Probe interval must be between 10 and 86400 seconds')),
       AutomaticDisableChannelEnabled: z.boolean(),
       AutomaticEnableChannelEnabled: z.boolean(),
       AutomaticDisableKeywords: z.string(),
@@ -138,6 +148,8 @@ type RoutingReliabilitySectionProps = {
   defaultValues: {
     RetryTimes: number
     ChannelDisableThreshold: string
+    ChannelFailureThreshold: number
+    ChannelHealthProbeIntervalSeconds: number
     AutomaticDisableChannelEnabled: boolean
     AutomaticEnableChannelEnabled: boolean
     AutomaticDisableKeywords: string
@@ -157,6 +169,8 @@ function normalizeLineEndings(value: string) {
 type NormalizedRoutingReliabilityValues = {
   RetryTimes: number
   ChannelDisableThreshold: string
+  ChannelFailureThreshold: number
+  ChannelHealthProbeIntervalSeconds: number
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
@@ -180,6 +194,9 @@ const buildFormDefaults = (
 ): RoutingReliabilityFormInput => ({
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: defaults.ChannelDisableThreshold ?? '',
+  ChannelFailureThreshold: defaults.ChannelFailureThreshold ?? 3,
+  ChannelHealthProbeIntervalSeconds:
+    defaults.ChannelHealthProbeIntervalSeconds ?? 60,
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -205,6 +222,9 @@ const normalizeDefaults = (
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: defaults.RetryTimes ?? 0,
   ChannelDisableThreshold: (defaults.ChannelDisableThreshold ?? '').trim(),
+  ChannelFailureThreshold: defaults.ChannelFailureThreshold ?? 3,
+  ChannelHealthProbeIntervalSeconds:
+    defaults.ChannelHealthProbeIntervalSeconds ?? 60,
   AutomaticDisableChannelEnabled: defaults.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: defaults.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -232,6 +252,8 @@ const normalizeFormValues = (
 ): NormalizedRoutingReliabilityValues => ({
   RetryTimes: values.RetryTimes,
   ChannelDisableThreshold: values.ChannelDisableThreshold.trim(),
+  ChannelFailureThreshold: values.ChannelFailureThreshold,
+  ChannelHealthProbeIntervalSeconds: values.ChannelHealthProbeIntervalSeconds,
   AutomaticDisableChannelEnabled: values.AutomaticDisableChannelEnabled,
   AutomaticEnableChannelEnabled: values.AutomaticEnableChannelEnabled,
   AutomaticDisableKeywords: normalizeLineEndings(
@@ -604,6 +626,56 @@ export function RoutingReliabilitySection({
                     <FormDescription>
                       {t(
                         'Automatically disable channels exceeding this response time'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='ChannelFailureThreshold'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Consecutive failure threshold (N)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={1}
+                        max={100}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Temporarily failing channels (timeouts, 502/503/504, network errors) are auto-disabled after N consecutive failures. Balance-exhausted channels are disabled immediately.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='ChannelHealthProbeIntervalSeconds'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Probe interval (seconds)')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='number'
+                        min={10}
+                        max={86400}
+                        step={1}
+                        {...safeNumberFieldProps(field)}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Auto-disabled temporary-failure channels are probed with the channel test model at this interval and re-enabled on success. Balance-exhausted channels are never probed automatically.'
                       )}
                     </FormDescription>
                     <FormMessage />

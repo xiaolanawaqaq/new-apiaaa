@@ -233,7 +233,11 @@ func InitLogDB() (err error) {
 		common.SetLogDatabaseType(common.MainDatabaseType())
 		initCol()
 		if common.IsMasterNode {
-			return MigrateAuditLogs()
+			if err := MigrateAuditLogs(); err != nil {
+				return err
+			}
+			// 复用主库时，prompt 内容日志与业务日志表也必须建在主库中。
+			return MigratePromptContentLogs()
 		}
 		return
 	}
@@ -394,6 +398,9 @@ func migrateDB() error {
 
 func migrateLOGDB() error {
 	if err := MigrateAuditLogs(); err != nil {
+		return err
+	}
+	if err := MigratePromptContentLogs(); err != nil {
 		return err
 	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {

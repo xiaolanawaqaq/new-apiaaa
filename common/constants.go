@@ -128,6 +128,12 @@ var QuotaForInvitee = 0
 var ChannelDisableThreshold = 5.0
 var AutomaticDisableChannelEnabled = false
 var AutomaticEnableChannelEnabled = false
+
+// 渠道健康管控：连续 temporary 失败达到 N 次后自动禁用；临时禁用的渠道
+// 按该间隔探测恢复。balance_exhausted 渠道永不自动探测。
+var ChannelFailureThreshold = 3
+var ChannelHealthProbeIntervalSeconds = 60
+
 var QuotaRemindThreshold = 1000
 var PreConsumedQuota = 500
 

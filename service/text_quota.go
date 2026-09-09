@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -401,6 +402,13 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	if originUsage != nil {
 		ObserveChannelAffinityUsageCacheByRelayFormat(ctx, billingUsage, relayInfo.GetFinalRequestRelayFormat())
 	}
+	// 请求成功即清零该渠道的连续失败计数（渠道健康管控）。
+	if relayInfo != nil && relayInfo.ChannelId > 0 {
+		channelID := relayInfo.ChannelId
+		gopool.Go(func() {
+			RecordChannelSuccess(channelID)
+		})
+	}
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
@@ -457,6 +465,11 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 		model.UpdateChannelUsedQuota(relayInfo.ChannelId, summary.Quota)
 	}
 
+	if err := SettleTokenPeriodQuota(ctx, relayInfo, int64(summary.PromptTokens), int64(summary.CompletionTokens)); err != nil {
+		if errors.Is(err, model.ErrTokenPeriodQuotaExceeded) {
+			logger.LogWarn(ctx, "token period quota exceeded during settlement: "+err.Error())
+		}
+	}
 	if err := SettleBilling(ctx, relayInfo, summary.Quota); err != nil {
 		logger.LogError(ctx, "error settling billing: "+err.Error())
 	}

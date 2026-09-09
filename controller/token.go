@@ -87,6 +87,30 @@ func getTokenRequestUserGroup(c *gin.Context) (string, error) {
 	return model.GetUserGroup(c.GetInt("id"), false)
 }
 
+func validateTokenChannel(c *gin.Context, channelID int) bool {
+	if channelID < 0 {
+		common.ApiError(c, fmt.Errorf("channel_id 不能为负数"))
+		return false
+	}
+	if channelID == 0 {
+		return true
+	}
+	channel, err := model.GetChannelById(channelID, false)
+	if err != nil || channel == nil {
+		common.ApiError(c, fmt.Errorf("绑定渠道不存在: %d", channelID))
+		return false
+	}
+	return true
+}
+
+func validateTokenPeriodQuota(c *gin.Context, token *model.Token) bool {
+	if err := model.ValidateTokenPeriodQuotaLimits(token); err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	return true
+}
+
 func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
 	if len(groups) == 0 {
 		if err := token.SetAutoGroups(nil); err != nil {
@@ -287,6 +311,12 @@ func AddToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if !validateTokenChannel(c, token.ChannelId) {
+		return
+	}
+	if !validateTokenPeriodQuota(c, &token) {
+		return
+	}
 	params := tokenAuditParams(c)
 	params["name"] = token.Name
 	// 非无限额度时，检查额度值是否超出有效范围
@@ -341,9 +371,17 @@ func AddToken(c *gin.Context) {
 		ModelLimitsEnabled: token.ModelLimitsEnabled,
 		ModelLimits:        token.ModelLimits,
 		AllowIps:           token.AllowIps,
+		ChannelId:          token.ChannelId,
+		HourlyInputLimit:   token.HourlyInputLimit,
+		HourlyOutputLimit:  token.HourlyOutputLimit,
+		DailyInputLimit:    token.DailyInputLimit,
+		DailyOutputLimit:   token.DailyOutputLimit,
+		MonthlyInputLimit:  token.MonthlyInputLimit,
+		MonthlyOutputLimit: token.MonthlyOutputLimit,
 		Group:              token.Group,
-		CrossGroupRetry:    token.CrossGroupRetry,
-		AutoGroups:         token.AutoGroups,
+
+		CrossGroupRetry: token.CrossGroupRetry,
+		AutoGroups:      token.AutoGroups,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -398,6 +436,12 @@ func UpdateToken(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
 	}
+	if !validateTokenChannel(c, token.ChannelId) {
+		return
+	}
+	if !validateTokenPeriodQuota(c, &token) {
+		return
+	}
 	if !token.UnlimitedQuota {
 		if token.RemainQuota < 0 {
 			common.ApiErrorI18n(c, i18n.MsgTokenQuotaNegative)
@@ -437,7 +481,15 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.ModelLimitsEnabled = token.ModelLimitsEnabled
 		cleanToken.ModelLimits = token.ModelLimits
 		cleanToken.AllowIps = token.AllowIps
+		cleanToken.ChannelId = token.ChannelId
+		cleanToken.HourlyInputLimit = token.HourlyInputLimit
+		cleanToken.HourlyOutputLimit = token.HourlyOutputLimit
+		cleanToken.DailyInputLimit = token.DailyInputLimit
+		cleanToken.DailyOutputLimit = token.DailyOutputLimit
+		cleanToken.MonthlyInputLimit = token.MonthlyInputLimit
+		cleanToken.MonthlyOutputLimit = token.MonthlyOutputLimit
 		cleanToken.Group = token.Group
+
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
 		if token.Group != "auto" {
 			cleanToken.CrossGroupRetry = false
@@ -470,7 +522,9 @@ func UpdateToken(c *gin.Context) {
 			{"model_limits", previous.ModelLimits != cleanToken.ModelLimits},
 			{"allow_ips", (previous.AllowIps == nil) != (cleanToken.AllowIps == nil) ||
 				(previous.AllowIps != nil && cleanToken.AllowIps != nil && *previous.AllowIps != *cleanToken.AllowIps)},
+			{"channel_id", previous.ChannelId != cleanToken.ChannelId},
 			{"group", previous.Group != cleanToken.Group},
+
 			{"cross_group_retry", previous.CrossGroupRetry != cleanToken.CrossGroupRetry},
 			{"auto_groups", previous.AutoGroups != cleanToken.AutoGroups},
 		} {

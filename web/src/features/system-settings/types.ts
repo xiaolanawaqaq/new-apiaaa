@@ -231,6 +231,8 @@ export type ModelSettings = {
   'group_ratio_setting.group_special_usable_group': string
   RetryTimes: number
   ChannelDisableThreshold: string
+  ChannelFailureThreshold: number
+  ChannelHealthProbeIntervalSeconds: number
   AutomaticDisableChannelEnabled: boolean
   AutomaticEnableChannelEnabled: boolean
   AutomaticDisableKeywords: string
@@ -389,6 +391,10 @@ export type SecuritySettings = {
   'fetch_setting.allowed_ports': number[]
   'fetch_setting.apply_ip_filter_for_domain': boolean
   'token_setting.max_user_tokens': number
+  PromptBlacklist: string
+  SecureContentLogEnabled: boolean
+  SecureContentLogRetentionHours: number
+  SecureContentLogMaxBytes: number
 }
 
 export type UpstreamChannel = {

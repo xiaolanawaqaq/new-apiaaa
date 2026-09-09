@@ -76,6 +76,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	//group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	//originalModel := common.GetContextKeyString(c, constant.ContextKeyOriginalModel)
 
+	var relayInfo *relaycommon.RelayInfo
+	secureCapture := beginSecureContentCapture(c, relayFormat)
+	defer func() {
+		finishSecureContentCapture(c, secureCapture, relayInfo)
+	}()
+
 	var (
 		newAPIError *types.NewAPIError
 		ws          *websocket.Conn
@@ -122,7 +128,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
-	relayInfo, err := relaycommon.GenRelayInfo(c, relayFormat, request, ws)
+	relayInfo, err = relaycommon.GenRelayInfo(c, relayFormat, request, ws)
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeGenRelayInfoFailed)
 		return
@@ -132,17 +138,30 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
 	var meta *types.TokenCountMeta
-	if needSensitiveCheck || needCountToken {
+	if needSensitiveCheck || needCountToken || secureCapture != nil {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
 	}
+	relayInfo.MaxOutputTokens = meta.MaxTokens
+	if secureCapture != nil {
+		secureCapture.requestText = meta.CombineText
+	}
 
-	if needSensitiveCheck && meta != nil {
+	if needSensitiveCheck || service.PromptBlacklistEnabled() {
+
 		contains, words := service.CheckSensitiveText(meta.CombineText)
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
-			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			code := types.ErrorCodeSensitiveWordsDetected
+			status := http.StatusBadRequest
+			if service.PromptBlacklistEnabled() {
+				if blocked, _ := service.PromptBlacklistContains(meta.CombineText); blocked {
+					code = types.ErrorCode("prompt_blocked")
+					status = http.StatusForbidden
+				}
+			}
+			newAPIError = types.NewErrorWithStatusCode(errors.New("prompt rejected"), code, status, types.ErrOptionWithSkipRetry())
 			return
 		}
 	}
@@ -155,7 +174,13 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
+	if err := service.PreConsumeTokenPeriodQuota(relayInfo); err != nil {
+		newAPIError = types.NewErrorWithStatusCode(err, types.ErrorCode("token_quota_exceeded"), http.StatusTooManyRequests, types.ErrOptionWithSkipRetry())
+		return
+	}
+
 	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+
 	if err != nil {
 		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 		return
@@ -176,6 +201,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
 			newAPIError = service.NormalizeViolationFeeError(newAPIError)
+			service.RefundTokenPeriodQuota(relayInfo)
 			if relayInfo.Billing != nil {
 				relayInfo.Billing.Refund(c)
 			}
@@ -345,6 +371,25 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 			AutoBan: &autoBanInt,
 		}, nil
 	}
+
+	if pin, found, _ := service.GetChannelConstraints(c).ResolvedPin(); found {
+		channel, err := model.CacheGetChannel(pin.ChannelId)
+		if err != nil || channel == nil {
+			return nil, types.NewError(fmt.Errorf("绑定渠道 #%d 不可用: %w", pin.ChannelId, err), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if channel.Status != common.ChannelStatusEnabled {
+			return nil, types.NewError(fmt.Errorf("绑定渠道 #%d 已禁用", pin.ChannelId), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		if ok, kind := model.ChannelSatisfiesFilters(channel, info.OriginModelName, service.GetChannelConstraints(c).Filters); !ok {
+			return nil, types.NewError(fmt.Errorf("绑定渠道 #%d 不满足请求约束 (%s)", pin.ChannelId, kind), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+		}
+		info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+		if setupErr := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName); setupErr != nil {
+			return nil, setupErr
+		}
+		return channel, nil
+	}
+
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
@@ -401,6 +446,18 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())
+		})
+	} else if channelError.AutoBan {
+		// 未命中立即禁用关键词的错误交给健康计数：temporary 错误累计，
+		// 达到 N 次后禁用；balance_exhausted 立即禁用且不自动探测。
+		channelID := channelError.ChannelId
+		failureErr := err
+		gopool.Go(func() {
+			channel, loadErr := model.GetChannelById(channelID, true)
+			if loadErr != nil {
+				return
+			}
+			_, _ = service.RecordChannelFailure(channel, failureErr)
 		})
 	}
 

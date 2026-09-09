@@ -1108,6 +1108,59 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 	return summary, nil
 }
 
+// channelProbeSummary 记录一次健康探测循环的结果，落到 system task 的
+// result 里供管理员查看。
+type channelProbeSummary struct {
+	Tested   int `json:"tested"`
+	Enabled  int `json:"enabled"`
+	Postponed int `json:"postponed"`
+}
+
+// runChannelHealthProbes 探测所有因 consecutive temporary failures 被自动
+// 禁用且到达探测时间的渠道。balance_exhausted 渠道（健康分类为
+// balance_exhausted 或由 AutomaticDisableKeywords 直接禁用的）不探测。
+// 探测成功调用 EnableChannel 恢复并清零计数；失败则顺延下一次探测窗口。
+func runChannelHealthProbes(ctx context.Context) (channelProbeSummary, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	testUserID, err := resolveChannelTestUserID(nil)
+	if err != nil {
+		return channelProbeSummary{}, err
+	}
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		return channelProbeSummary{}, err
+	}
+
+	summary := channelProbeSummary{}
+	now := time.Now()
+	for _, channel := range channels {
+		if ctx.Err() != nil {
+			break
+		}
+		if !service.ChannelDueForProbe(channel, now) {
+			continue
+		}
+		summary.Tested++
+		// 探测直接复用渠道测试能力；失败结果只影响健康状态，不再触发
+		// DisableChannel（渠道已是禁用状态）。
+		result := testChannel(ctx, channel, testUserID, "", "", false)
+		success := result.localErr == nil && result.newAPIError == nil
+		if success {
+			key, _, _ := channel.GetNextEnabledKey()
+			service.EnableChannel(channel.Id, key, channel.Name)
+			service.MarkChannelProbed(channel.Id, true)
+			summary.Enabled++
+			common.SysLog(fmt.Sprintf("channel health: probe succeeded, channel #%d re-enabled", channel.Id))
+		} else {
+			service.MarkChannelProbed(channel.Id, false)
+			summary.Postponed++
+		}
+	}
+	return summary, nil
+}
+
 func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*model.Channel {
 	selected := make([]*model.Channel, 0, len(channels))
 	for _, channel := range channels {

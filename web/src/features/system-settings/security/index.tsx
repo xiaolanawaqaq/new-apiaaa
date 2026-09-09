@@ -42,6 +42,10 @@ const defaultSecuritySettings: SecuritySettings = {
   'fetch_setting.allowed_ports': [],
   'fetch_setting.apply_ip_filter_for_domain': false,
   'token_setting.max_user_tokens': 1000,
+  PromptBlacklist: '[]',
+  SecureContentLogEnabled: false,
+  SecureContentLogRetentionHours: 24,
+  SecureContentLogMaxBytes: 16384,
 }
 
 export function SecuritySettings() {

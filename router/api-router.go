@@ -303,7 +303,12 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
+		apiRouter.GET("/prompt-security/options", middleware.AdminAuth(), controller.GetPromptSecurityOptions)
+		apiRouter.PUT("/prompt-security/options", middleware.RootAuth(), controller.UpdatePromptSecurityOption)
+		apiRouter.GET("/prompt-security/content", middleware.AdminAuth(), controller.GetPromptContentLogs)
+		apiRouter.DELETE("/prompt-security/content/expired", middleware.RootAuth(), controller.CleanupPromptContentLogs)
 		apiRouter.GET("/audit", middleware.DisableCache(), middleware.AdminAuth(), middleware.RequirePermission(authz.AuditRead), controller.GetAuditLogs)
+
 		apiRouter.GET("/audit/self", middleware.DisableCache(), middleware.UserAuth(), controller.GetAuditLogs)
 		logRoute := apiRouter.Group("/log")
 		logRoute.GET("/", middleware.AdminAuth(), controller.GetAllLogs)

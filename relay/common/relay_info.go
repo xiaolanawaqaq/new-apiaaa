@@ -128,10 +128,12 @@ type RelayInfo struct {
 	// ClaudeToChatStreamState / ChatToGeminiStreamState hold per-attempt
 	// stream converters. InitChannelMeta nils them so a retry cannot resume a
 	// dirty converter (advanced tool index / finalized).
-	ClaudeToChatStreamState any
-	ChatToGeminiStreamState any
-	ReceivedResponseCount   int
-	FinalPreConsumedQuota   int // 最终预消耗的配额
+	ClaudeToChatStreamState   any
+	ChatToGeminiStreamState   any
+	ReceivedResponseCount     int
+	FinalPreConsumedQuota     int // 最终预消耗的配额
+	PeriodQuotaReservedInput  int64
+	PeriodQuotaReservedOutput int64
 	// ForcePreConsume 为 true 时禁用 BillingSession 的信任额度旁路，
 	// 强制预扣全额。用于异步任务（视频/音乐生成等），因为请求返回后任务仍在运行，
 	// 必须在提交前锁定全额。
@@ -197,6 +199,7 @@ type RelayInfo struct {
 
 	ThinkingContentInfo
 	TokenCountMeta
+	MaxOutputTokens int
 	*ClaudeConvertInfo
 	*RerankerInfo
 	*ResponsesUsageInfo

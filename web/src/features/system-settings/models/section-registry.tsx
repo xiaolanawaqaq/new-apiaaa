@@ -73,6 +73,9 @@ const MODELS_SECTIONS = [
         defaultValues={{
           RetryTimes: settings.RetryTimes,
           ChannelDisableThreshold: settings.ChannelDisableThreshold,
+          ChannelFailureThreshold: settings.ChannelFailureThreshold,
+          ChannelHealthProbeIntervalSeconds:
+            settings.ChannelHealthProbeIntervalSeconds,
           AutomaticDisableChannelEnabled:
             settings.AutomaticDisableChannelEnabled,
           AutomaticEnableChannelEnabled: settings.AutomaticEnableChannelEnabled,

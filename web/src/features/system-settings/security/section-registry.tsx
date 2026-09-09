@@ -20,6 +20,7 @@ import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
 import { TokenLimitSection } from '../request-limits/token-limit-section'
+import { PromptSecuritySection } from './prompt-security-section'
 import type { SecuritySettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 
@@ -86,6 +87,21 @@ const SECURITY_SECTIONS = [
         defaultValues={{
           'token_setting.max_user_tokens':
             settings['token_setting.max_user_tokens'],
+        }}
+      />
+    ),
+  },
+  {
+    id: 'prompt-security',
+    titleKey: 'Prompt Security',
+    build: (settings: SecuritySettings) => (
+      <PromptSecuritySection
+        defaultValues={{
+          PromptBlacklist: settings.PromptBlacklist,
+          SecureContentLogEnabled: settings.SecureContentLogEnabled,
+          SecureContentLogRetentionHours:
+            settings.SecureContentLogRetentionHours,
+          SecureContentLogMaxBytes: settings.SecureContentLogMaxBytes,
         }}
       />
     ),

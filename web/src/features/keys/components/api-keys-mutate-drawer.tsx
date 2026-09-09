@@ -363,6 +363,41 @@ export function ApiKeysMutateDrawer({
   const autoGroupsMode = form.watch('auto_groups_mode')
   const unlimitedQuota = form.watch('unlimited_quota')
 
+  const nonNegativeInt = (raw: string) =>
+    Math.max(0, Number.parseInt(raw, 10) || 0)
+
+  const renderPeriodQuotaField = (
+    name:
+      | 'hourly_input_limit'
+      | 'hourly_output_limit'
+      | 'daily_input_limit'
+      | 'daily_output_limit'
+      | 'monthly_input_limit'
+      | 'monthly_output_limit',
+    label: string
+  ) => (
+    <FormField
+      key={name}
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <FormItem>
+          <FormLabel className='text-xs'>{label}</FormLabel>
+          <FormControl>
+            <Input
+              type='number'
+              min='0'
+              step='1'
+              value={field.value ?? 0}
+              onChange={(e) => field.onChange(nonNegativeInt(e.target.value))}
+            />
+          </FormControl>
+          <FormMessage />
+        </FormItem>
+      )}
+    />
+  )
+
   return (
     <Sheet
       open={open}
@@ -666,6 +701,40 @@ export function ApiKeysMutateDrawer({
                   </FormItem>
                 )}
               />
+
+              <div className='flex flex-col gap-2'>
+                <FormLabel className='text-sm'>
+                  {t('Period Token Limits')}
+                </FormLabel>
+                <FormDescription className='text-xs'>
+                  {t(
+                    'Independent input/output token budgets per hour, day, and month. 0 means unlimited.'
+                  )}
+                </FormDescription>
+                <div className='grid grid-cols-2 gap-3'>
+                  {renderPeriodQuotaField(
+                    'hourly_input_limit',
+                    t('Hourly Input')
+                  )}
+                  {renderPeriodQuotaField(
+                    'hourly_output_limit',
+                    t('Hourly Output')
+                  )}
+                  {renderPeriodQuotaField('daily_input_limit', t('Daily Input'))}
+                  {renderPeriodQuotaField(
+                    'daily_output_limit',
+                    t('Daily Output')
+                  )}
+                  {renderPeriodQuotaField(
+                    'monthly_input_limit',
+                    t('Monthly Input')
+                  )}
+                  {renderPeriodQuotaField(
+                    'monthly_output_limit',
+                    t('Monthly Output')
+                  )}
+                </div>
+              </div>
             </SideDrawerSection>
 
             <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
@@ -693,6 +762,33 @@ export function ApiKeysMutateDrawer({
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className='flex flex-col gap-4 pt-2'>
+                    <FormField
+                      control={form.control}
+                      name='channel_id'
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t('Bound Channel')}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type='number'
+                              min='0'
+                              step='1'
+                              value={field.value ?? 0}
+                              onChange={(e) =>
+                                field.onChange(nonNegativeInt(e.target.value))
+                              }
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            {t(
+                              'Force this key to use only the given channel ID. 0 means no binding. Bound keys never fall back to other channels.'
+                            )}
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
                     <FormField
                       control={form.control}
                       name='model_limits'

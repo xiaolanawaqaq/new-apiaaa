@@ -1,6 +1,8 @@
 package model
 
 import (
+	"encoding/json"
+	"fmt"
 	"maps"
 	"strconv"
 	"strings"
@@ -62,6 +64,8 @@ func InitOptionMap() {
 	jsplugin.DefaultRegistry.SetDisabledFactoryKeys(nil)
 	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(common.DataExportEnabled)
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
+	common.OptionMap["ChannelFailureThreshold"] = strconv.Itoa(common.ChannelFailureThreshold)
+	common.OptionMap["ChannelHealthProbeIntervalSeconds"] = strconv.Itoa(common.ChannelHealthProbeIntervalSeconds)
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
@@ -180,6 +184,10 @@ func InitOptionMap() {
 	common.OptionMap["CheckSensitiveOnPromptEnabled"] = strconv.FormatBool(setting.CheckSensitiveOnPromptEnabled)
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
+	common.OptionMap["PromptBlacklist"] = "[]"
+	common.OptionMap["SecureContentLogEnabled"] = "false"
+	common.OptionMap["SecureContentLogRetentionHours"] = "24"
+	common.OptionMap["SecureContentLogMaxBytes"] = strconv.Itoa(MaxPromptContentLogBytes)
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
@@ -221,6 +229,40 @@ func validateOptionValue(key string, value string) error {
 	}
 	if key == "MaxTokenAutoGroups" {
 		return setting.ValidateMaxTokenAutoGroups(value)
+	}
+	if key == "PromptBlacklist" {
+		var words []string
+		if err := json.Unmarshal([]byte(value), &words); err != nil {
+			return fmt.Errorf("PromptBlacklist must be a JSON string array: %w", err)
+		}
+		if len(words) > 512 {
+			return fmt.Errorf("PromptBlacklist contains too many entries")
+		}
+		return nil
+	}
+	if key == "SecureContentLogRetentionHours" {
+		hours, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || hours <= 0 {
+			return fmt.Errorf("SecureContentLogRetentionHours must be a positive integer")
+		}
+	}
+	if key == "SecureContentLogMaxBytes" {
+		maxBytes, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || maxBytes <= 0 || maxBytes > MaxSecureContentLogBytesLimit {
+			return fmt.Errorf("SecureContentLogMaxBytes must be an integer between 1 and %d", MaxSecureContentLogBytesLimit)
+		}
+	}
+	if key == "ChannelFailureThreshold" {
+		threshold, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || threshold <= 0 || threshold > 100 {
+			return fmt.Errorf("ChannelFailureThreshold must be an integer between 1 and 100")
+		}
+	}
+	if key == "ChannelHealthProbeIntervalSeconds" {
+		seconds, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || seconds < 10 || seconds > 86400 {
+			return fmt.Errorf("ChannelHealthProbeIntervalSeconds must be an integer between 10 and 86400")
+		}
 	}
 	return nil
 }
@@ -602,6 +644,16 @@ func updateOptionMap(key string, value string) (err error) {
 	//	common.ChatLink2 = value
 	case "ChannelDisableThreshold":
 		common.ChannelDisableThreshold, _ = strconv.ParseFloat(value, 64)
+	case "ChannelFailureThreshold":
+		parsed, parseErr := strconv.Atoi(strings.TrimSpace(value))
+		if parseErr == nil && parsed > 0 {
+			common.ChannelFailureThreshold = parsed
+		}
+	case "ChannelHealthProbeIntervalSeconds":
+		parsed, parseErr := strconv.Atoi(strings.TrimSpace(value))
+		if parseErr == nil && parsed >= 10 {
+			common.ChannelHealthProbeIntervalSeconds = parsed
+		}
 	case "QuotaPerUnit":
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":

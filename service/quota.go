@@ -255,6 +255,7 @@ func PostWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, mod
 		Group:            relayInfo.UsingGroup,
 		Other:            other,
 	})
+
 }
 
 func CalcOpenRouterCacheCreateTokens(usage dto.Usage, priceData types.PriceData) int {
@@ -393,6 +394,46 @@ func PostAudioConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, u
 	})
 }
 
+func PreConsumeTokenPeriodQuota(relayInfo *relaycommon.RelayInfo) error {
+	if relayInfo == nil || relayInfo.IsPlayground || relayInfo.TokenId <= 0 {
+		return nil
+	}
+	input := int64(relayInfo.GetEstimatePromptTokens())
+	output := int64(relayInfo.MaxOutputTokens)
+	if input <= 0 && output <= 0 {
+		return nil
+	}
+	if err := model.ReserveTokenPeriodQuota(relayInfo.TokenId, input, output); err != nil {
+		return err
+	}
+	relayInfo.PeriodQuotaReservedInput = input
+	relayInfo.PeriodQuotaReservedOutput = output
+	return nil
+}
+
+func SettleTokenPeriodQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, input, output int64) error {
+	if relayInfo == nil || relayInfo.IsPlayground || relayInfo.TokenId <= 0 || (relayInfo.PeriodQuotaReservedInput == 0 && relayInfo.PeriodQuotaReservedOutput == 0) {
+		return nil
+	}
+	if err := model.SettleTokenPeriodQuota(relayInfo.TokenId, relayInfo.PeriodQuotaReservedInput, input, relayInfo.PeriodQuotaReservedOutput, output); err != nil {
+		logger.LogError(ctx, "error settling token period quota: "+err.Error())
+		return err
+	}
+	relayInfo.PeriodQuotaReservedInput = 0
+	relayInfo.PeriodQuotaReservedOutput = 0
+	return nil
+}
+
+func RefundTokenPeriodQuota(relayInfo *relaycommon.RelayInfo) {
+	if relayInfo == nil || relayInfo.TokenId <= 0 || (relayInfo.PeriodQuotaReservedInput == 0 && relayInfo.PeriodQuotaReservedOutput == 0) {
+		return
+	}
+	if err := model.SettleTokenPeriodQuota(relayInfo.TokenId, relayInfo.PeriodQuotaReservedInput, 0, relayInfo.PeriodQuotaReservedOutput, 0); err != nil {
+		common.SysLog("failed to refund token period quota: " + err.Error())
+	}
+	relayInfo.PeriodQuotaReservedInput = 0
+	relayInfo.PeriodQuotaReservedOutput = 0
+}
 func PreConsumeTokenQuota(relayInfo *relaycommon.RelayInfo, quota int) error {
 	if quota < 0 {
 		return errors.New("quota 不能为负数！")

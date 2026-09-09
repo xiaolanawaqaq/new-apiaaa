@@ -46,6 +46,13 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  channel_id: z.number().nullish().default(0),
+  hourly_input_limit: z.number().nullish().default(0),
+  hourly_output_limit: z.number().nullish().default(0),
+  daily_input_limit: z.number().nullish().default(0),
+  daily_output_limit: z.number().nullish().default(0),
+  monthly_input_limit: z.number().nullish().default(0),
+  monthly_output_limit: z.number().nullish().default(0),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -91,6 +98,13 @@ export interface ApiKeyFormData {
   model_limits_enabled: boolean
   model_limits: string
   allow_ips: string
+  channel_id: number
+  hourly_input_limit: number
+  hourly_output_limit: number
+  daily_input_limit: number
+  daily_output_limit: number
+  monthly_input_limit: number
+  monthly_output_limit: number
   group: string
   auto_groups: string[]
   cross_group_retry: boolean

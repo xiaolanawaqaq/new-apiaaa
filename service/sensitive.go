@@ -24,7 +24,7 @@ func CheckSensitiveMessages(messages []dto.Message) ([]string, error) {
 			if m.Text == "" {
 				continue
 			}
-			if ok, words := SensitiveWordContains(m.Text); ok {
+			if ok, words := CheckSensitiveText(m.Text); ok {
 				return words, errors.New("sensitive words detected")
 			}
 		}
@@ -33,7 +33,21 @@ func CheckSensitiveMessages(messages []dto.Message) ([]string, error) {
 }
 
 func CheckSensitiveText(text string) (bool, []string) {
-	return SensitiveWordContains(text)
+	matched, words := SensitiveWordContains(text)
+	blacklistMatched, blacklistWords := PromptBlacklistContains(text)
+	if !blacklistMatched {
+		return matched, words
+	}
+	seen := make(map[string]struct{}, len(words)+len(blacklistWords))
+	combined := make([]string, 0, len(words)+len(blacklistWords))
+	for _, word := range append(words, blacklistWords...) {
+		if _, ok := seen[word]; ok {
+			continue
+		}
+		seen[word] = struct{}{}
+		combined = append(combined, word)
+	}
+	return true, combined
 }
 
 // SensitiveWordContains 是否包含敏感词，返回是否包含敏感词和敏感词列表
