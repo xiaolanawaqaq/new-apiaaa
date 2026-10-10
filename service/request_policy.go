@@ -91,6 +91,9 @@ func (s *RequestPolicyState) BeginAttempt(channel *model.Channel, group string) 
 	s.Successful = false
 	s.OutcomeRecorded = false
 	s.SelectedGroup = group
+	if channel != nil {
+		model.RecordChannelDispatchAttempt(channel.Id)
+	}
 	s.AddEvent(PolicyEvent{ChannelID: channel.Id, Decision: PolicyDecision{Action: "attempt", Reason: "channel_selected", Source: "routing"}})
 }
 
@@ -101,6 +104,8 @@ func RecordPolicyFailure(c *gin.Context, channelID int, err *types.NewAPIError, 
 	if c == nil || err == nil {
 		return
 	}
+	kind := ClassifyChannelError(err)
+	model.RecordChannelDispatchFailure(channelID, err.StatusCode, string(err.GetErrorCode()), kind, time.Since(RequestPolicy(c).StartedAt))
 	source := "upstream"
 	switch {
 	case types.IsChannelError(err):
@@ -133,13 +138,16 @@ func MarkRequestPolicySuccess(c *gin.Context, stream *relaycommon.StreamStatus) 
 	}
 	state.OutcomeRecorded = true
 	state.Successful = stream == nil || stream.IsNormalEnd() && !stream.HasErrors() && (stream.ResponseOutcome() == "" || stream.ResponseOutcome() == "completed")
-	decision := PolicyDecision{Action: "success", Reason: "request_completed", Source: "upstream"}
-	if !state.Successful {
-		decision = PolicyDecision{Action: "stop", Reason: "stream_not_successful", Source: "system"}
-	}
 	channelID := 0
 	if c != nil {
 		channelID = c.GetInt("channel_id")
+	}
+	if state.Successful && channelID > 0 {
+		model.RecordChannelDispatchSuccess(channelID, time.Since(state.StartedAt))
+	}
+	decision := PolicyDecision{Action: "success", Reason: "request_completed", Source: "upstream"}
+	if !state.Successful {
+		decision = PolicyDecision{Action: "stop", Reason: "stream_not_successful", Source: "system"}
 	}
 	state.AddEvent(PolicyEvent{ChannelID: channelID, Decision: decision})
 }

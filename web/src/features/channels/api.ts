@@ -27,6 +27,7 @@ import type {
   BatchSetTagParams,
   Channel,
   ChannelBalanceResponse,
+  ChannelHealthResponse,
   ChannelOpsResponse,
   ChannelTestResponse,
   CopyChannelParams,
@@ -152,6 +153,11 @@ export async function getChannelOps(
     params: autoBan === undefined ? undefined : { auto_ban: autoBan },
   })
   return res.data
+}
+
+export async function getChannelHealth(): Promise<ChannelHealthResponse> {
+  const response = await api.get('/api/channel/health')
+  return requireServerSuccess(response.data)
 }
 
 export async function getChannelDefaultBaseURLs(): Promise<

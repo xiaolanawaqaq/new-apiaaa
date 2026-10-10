@@ -317,6 +317,10 @@ func SetApiRouter(router *gin.Engine) {
 			redemptionRoute.DELETE("/invalid", controller.DeleteInvalidRedemption)
 			redemptionRoute.DELETE("/:id", controller.DeleteRedemption)
 		}
+		middleware.DeclareAccessTokenPermissionRoute(http.MethodGet, "/api/prompt-security/options", authz.ChannelRead)
+		middleware.DeclareAccessTokenPermissionRoute(http.MethodPut, "/api/prompt-security/options", authz.ChannelSensitiveWrite)
+		middleware.DeclareAccessTokenPermissionRoute(http.MethodGet, "/api/prompt-security/content", authz.ChannelRead)
+		middleware.DeclareAccessTokenPermissionRoute(http.MethodDelete, "/api/prompt-security/content/expired", authz.ChannelSensitiveWrite)
 		apiRouter.GET("/prompt-security/options", middleware.AdminAuth(), controller.GetPromptSecurityOptions)
 		apiRouter.PUT("/prompt-security/options", middleware.RootAuth(), controller.UpdatePromptSecurityOption)
 		apiRouter.GET("/prompt-security/content", middleware.AdminAuth(), controller.GetPromptContentLogs)

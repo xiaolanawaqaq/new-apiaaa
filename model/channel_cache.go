@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -173,7 +174,7 @@ func GetRandomSatisfiedChannel(
 	for _, channelId := range channels {
 		if channel, ok := channelsIDM[channelId]; ok {
 			if channel.GetPriority() == targetPriority {
-				sumWeight += channel.GetWeight()
+				sumWeight += channelSelectionWeight(channel)
 				targetChannels = append(targetChannels, channel)
 			}
 		} else {
@@ -207,7 +208,7 @@ func GetRandomSatisfiedChannel(
 
 	// Find a channel based on its weight
 	for _, channel := range targetChannels {
-		randomWeight -= channel.GetWeight()*smoothingFactor + smoothingAdjustment
+		randomWeight -= channelSelectionWeight(channel)*smoothingFactor + smoothingAdjustment
 		if randomWeight < 0 {
 			return channel, nil
 		}
@@ -254,21 +255,66 @@ func CacheUpdateChannelStatus(id int, status int) {
 	}
 	channelSyncLock.Lock()
 	defer channelSyncLock.Unlock()
-	if channel, ok := channelsIDM[id]; ok {
-		channel.Status = status
+	channel, ok := channelsIDM[id]
+	if !ok {
+		return
 	}
+	channel.Status = status
 	if status != common.ChannelStatusEnabled {
-		// delete the channel from group2model2channels
-		for group, model2channels := range group2model2channels {
-			for model, channels := range model2channels {
-				for i, channelId := range channels {
-					if channelId == id {
-						// remove the channel from the slice
-						group2model2channels[group][model] = append(channels[:i], channels[i+1:]...)
-						break
-					}
+		removeChannelFromSelectionIndexLocked(id)
+		return
+	}
+	removeChannelFromSelectionIndexLocked(id)
+	addChannelToSelectionIndexLocked(channel)
+}
+
+func removeChannelFromSelectionIndexLocked(id int) {
+	for group, model2channels := range group2model2channels {
+		for model, channels := range model2channels {
+			filtered := channels[:0]
+			for _, channelID := range channels {
+				if channelID != id {
+					filtered = append(filtered, channelID)
 				}
 			}
+			if len(filtered) == 0 {
+				delete(model2channels, model)
+			} else {
+				model2channels[model] = filtered
+			}
+		}
+		if len(model2channels) == 0 {
+			delete(group2model2channels, group)
+		}
+	}
+}
+
+func addChannelToSelectionIndexLocked(channel *Channel) {
+	if channel == nil || channel.Status != common.ChannelStatusEnabled {
+		return
+	}
+	if group2model2channels == nil {
+		group2model2channels = make(map[string]map[string][]int)
+	}
+	for _, group := range channel.GetGroups() {
+		if group2model2channels[group] == nil {
+			group2model2channels[group] = make(map[string][]int)
+		}
+		for _, modelName := range channel.GetModels() {
+			channelIDs := group2model2channels[group][modelName]
+			if slices.Contains(channelIDs, channel.Id) {
+				continue
+			}
+			channelIDs = append(channelIDs, channel.Id)
+			sort.SliceStable(channelIDs, func(i, j int) bool {
+				left := channelsIDM[channelIDs[i]]
+				right := channelsIDM[channelIDs[j]]
+				if left == nil || right == nil {
+					return left != nil
+				}
+				return left.GetPriority() > right.GetPriority()
+			})
+			group2model2channels[group][modelName] = channelIDs
 		}
 	}
 }
@@ -290,6 +336,12 @@ func CacheUpdateChannel(channel *Channel) {
 		logger.LogDebug(nil, "CacheUpdateChannel before: id=%d, name=%s, status=%d, polling_index=%d", channel.Id, channel.Name, channel.Status, oldChannel.ChannelInfo.MultiKeyPollingIndex)
 	}
 	channelsIDM[channel.Id] = channel
+	if channel.Status == common.ChannelStatusEnabled {
+		removeChannelFromSelectionIndexLocked(channel.Id)
+		addChannelToSelectionIndexLocked(channel)
+	} else {
+		removeChannelFromSelectionIndexLocked(channel.Id)
+	}
 	if channel2advancedCustomConfig == nil {
 		channel2advancedCustomConfig = make(map[int]*kitdto.AdvancedCustomConfig)
 	}

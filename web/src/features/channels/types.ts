@@ -180,6 +180,52 @@ export interface GetChannelResponse {
   data?: Channel
 }
 
+export interface ChannelHealthStats {
+  attempts: number
+  successes: number
+  failures: number
+  temporary_failures: number
+  balance_exhausted: number
+  in_flight: number
+  ewma_latency_ms: number
+  last_error_status: number
+  last_error_code?: string
+  last_error_kind?: string
+  last_success_at: number
+  last_failure_at: number
+  updated_at: number
+}
+
+export interface ChannelHealthItem {
+  id: number
+  name: string
+  type: number
+  status: number
+  groups: string[]
+  priority: number
+  weight: number
+  response_time: number
+  test_time: number
+  health?: {
+    consecutive_failures?: number
+    classification?: string
+    disabled_reason?: string
+    next_probe_time?: number
+    last_probe_time?: number
+  }
+  dispatch: ChannelHealthStats
+}
+
+export interface ChannelHealthResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ChannelHealthItem[]
+    counts: Record<string, number>
+    total: number
+  }
+}
+
 export interface ChannelOpsResponse {
   success: boolean
   message?: string

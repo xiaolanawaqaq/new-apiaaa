@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -141,18 +142,29 @@ func GetChannel(
 	}
 	channel := Channel{}
 	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
+		channelsByID := make(map[int]*Channel, len(abilities))
+		channelIDs := make([]int, 0, len(abilities))
+		for _, ability := range abilities {
+			if !slices.Contains(channelIDs, ability.ChannelId) {
+				channelIDs = append(channelIDs, ability.ChannelId)
+			}
 		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
+		var candidateChannels []Channel
+		if err := DB.Where("id IN ?", channelIDs).Find(&candidateChannels).Error; err != nil {
+			return nil, err
+		}
+		for i := range candidateChannels {
+			channelsByID[candidateChannels[i].Id] = &candidateChannels[i]
+		}
+		weightSum := 0
+		for _, ability := range abilities {
+			weightSum += channelSelectionWeight(channelsByID[ability.ChannelId])
+		}
+		weight := common.GetRandomInt(weightSum)
+		for _, ability := range abilities {
+			weight -= channelSelectionWeight(channelsByID[ability.ChannelId])
+			if weight < 0 {
+				channel.Id = ability.ChannelId
 				break
 			}
 		}

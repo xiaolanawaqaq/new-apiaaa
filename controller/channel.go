@@ -179,6 +179,52 @@ func GetChannelOps(c *gin.Context) {
 	})
 }
 
+func GetChannelHealth(c *gin.Context) {
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	stats := model.AllChannelDispatchStats()
+	type channelHealthResponse struct {
+		ID           int                        `json:"id"`
+		Name         string                     `json:"name"`
+		Type         int                        `json:"type"`
+		Status       int                        `json:"status"`
+		Groups       []string                   `json:"groups"`
+		Priority     int64                      `json:"priority"`
+		Weight       int                        `json:"weight"`
+		ResponseTime int                        `json:"response_time"`
+		TestTime     int64                      `json:"test_time"`
+		Health       any                        `json:"health,omitempty"`
+		Dispatch     model.ChannelDispatchStats `json:"dispatch"`
+	}
+	items := make([]channelHealthResponse, 0, len(channels))
+	counts := map[string]int{"enabled": 0, "manual_disabled": 0, "auto_disabled": 0, "unknown": 0}
+	for _, channel := range channels {
+		if channel == nil {
+			continue
+		}
+		status := "unknown"
+		switch channel.Status {
+		case common.ChannelStatusEnabled:
+			status = "enabled"
+		case common.ChannelStatusManuallyDisabled:
+			status = "manual_disabled"
+		case common.ChannelStatusAutoDisabled:
+			status = "auto_disabled"
+		}
+		counts[status]++
+		items = append(items, channelHealthResponse{
+			ID: channel.Id, Name: channel.Name, Type: channel.Type, Status: channel.Status,
+			Groups: channel.GetGroups(), Priority: channel.GetPriority(), Weight: channel.GetWeight(),
+			ResponseTime: channel.ResponseTime, TestTime: channel.TestTime,
+			Health: channel.GetOtherInfo()["channel_health"], Dispatch: stats[channel.Id],
+		})
+	}
+	common.ApiSuccess(c, gin.H{"items": items, "counts": counts, "total": len(items)})
+}
+
 func GetChannelDefaultBaseURLs(c *gin.Context) {
 	baseURLs := make(map[int]string)
 	for channelType, baseURL := range constant.ChannelBaseURLs {
