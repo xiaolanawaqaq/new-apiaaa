@@ -543,6 +543,43 @@ export function useCommonLogsColumns(
           },
         },
         {
+          id: 'client',
+          header: t('Client'),
+          accessorFn: (row) => {
+            const other = parseLogOther(row.other)
+            return other?.admin_info?.client_agent ?? ''
+          },
+          cell: function ClientCell({ row }) {
+            const log = row.original
+            if (!isDisplayableLogType(log.type)) return null
+
+            const other = parseLogOther(log.other)
+            const clientAgent = other?.admin_info?.client_agent
+            const rawUserAgent = other?.admin_info?.user_agent
+            if (!clientAgent && !rawUserAgent) return null
+
+            return (
+              <TooltipProvider delay={300}>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<div className='flex max-w-[160px] flex-col' />}
+                  >
+                    <span className='truncate text-xs'>
+                      {clientAgent || rawUserAgent}
+                    </span>
+                  </TooltipTrigger>
+                  {rawUserAgent && (
+                    <TooltipContent side='top' className='max-w-xs break-all'>
+                      {rawUserAgent}
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+            )
+          },
+          meta: { label: t('Client'), mobileHidden: true },
+        },
+        {
           id: 'user',
           header: t('User'),
           accessorFn: (row) => row.username,

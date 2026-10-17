@@ -48,6 +48,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 		}
 	}
 	other := model.NewLogOther()
+	appendClientAgentAdminInfo(c, other)
 	other.SetPublic("is_task", true)
 	other.SetPublic("request_path", c.Request.URL.Path)
 	if taskDeliveredInline(c, task) {

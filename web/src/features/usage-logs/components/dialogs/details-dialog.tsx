@@ -665,6 +665,17 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
+          {props.isAdmin && adminInfo?.client_agent && (
+            <DetailRow label={t('Client')} value={adminInfo.client_agent} />
+          )}
+          {props.isAdmin && adminInfo?.user_agent && (
+            <DetailRow
+              label={t('User Agent')}
+              value={adminInfo.user_agent}
+              mono
+            />
+          )}
+
           {props.isAdmin && props.log.channel > 0 && (
             <DetailRow
               label={t('Channel')}

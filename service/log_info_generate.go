@@ -65,12 +65,34 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
+// appendClientAgentAdminInfo records which client/agent issued the request.
+// Administrators use it to tell SDKs, CLI agents, and IDE plugins apart; the
+// raw User-Agent stays alongside the normalized name so unrecognized callers
+// remain identifiable. Both fields are admin-only.
+func appendClientAgentAdminInfo(ctx *gin.Context, other *model.LogOther) {
+	if ctx == nil || other == nil || ctx.Request == nil {
+		return
+	}
+	rawUserAgent := strings.TrimSpace(ctx.Request.UserAgent())
+	if rawUserAgent == "" {
+		return
+	}
+	if len(rawUserAgent) > clientAgentMaxUserAgentLength {
+		rawUserAgent = truncateUTF8(rawUserAgent, clientAgentMaxUserAgentLength)
+	}
+	if label := ClientAgentLabel(rawUserAgent); label != "" {
+		other.SetAdmin("client_agent", label)
+	}
+	other.SetAdmin("user_agent", rawUserAgent)
+}
+
 // AppendRelayLogAdminInfo records relay routing and conversion diagnostics in
 // the admin-only scope shared by successful and failed request logs.
 func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other *model.LogOther) {
 	if ctx == nil || other == nil {
 		return
 	}
+	appendClientAgentAdminInfo(ctx, other)
 	other.SetAdmin("use_channel", ctx.GetStringSlice("use_channel"))
 	if relayInfo != nil {
 		if billingModel := relayInfo.GetBillingModelName(); billingModel != "" && billingModel != relayInfo.OriginModelName {

@@ -121,6 +121,10 @@ export interface LogOtherData {
     multi_key_index?: number
     use_channel?: number[]
     local_count_tokens?: boolean
+    // Calling client identity recorded by the relay: normalized product name
+    // (client_agent) plus the truncated raw User-Agent. Admin only.
+    client_agent?: string
+    user_agent?: string
     usage_billing_path?: UsageBillingPath | string
     channel_affinity?: ChannelAffinityInfo
     // Top-up audit fields (type=1, admin only)
