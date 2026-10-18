@@ -35,6 +35,11 @@ var DefaultCollapseSidebar = false // default value of collapse sidebar
 var SessionSecret = uuid.New().String()
 var CryptoSecret = uuid.New().String()
 var SessionCookieSecure = false
+
+// DefaultLanguage is the DEFAULT_LANGUAGE environment variable: the language of
+// server log lines and of text for a reader who states no language: en, zh-CN
+// or zh-TW. English when empty.
+var DefaultLanguage string
 var SessionCookieTrustedURLs []string
 
 const (
@@ -134,6 +139,7 @@ var AutomaticEnableChannelEnabled = false
 var ChannelFailureThreshold = 3
 var ChannelHealthProbeIntervalSeconds = 60
 
+var QuotaRemindEnabled = true
 var QuotaRemindThreshold = 1000
 
 // PreConsumedQuota is retained for old option clients; token reservations now

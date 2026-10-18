@@ -53,6 +53,7 @@ export const apiKeySchema = z.object({
   daily_output_limit: z.number().nullish().default(0),
   monthly_input_limit: z.number().nullish().default(0),
   monthly_output_limit: z.number().nullish().default(0),
+  allow_user_quota_query: z.boolean().optional().default(false),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -105,6 +106,7 @@ export interface ApiKeyFormData {
   daily_output_limit: number
   monthly_input_limit: number
   monthly_output_limit: number
+  allow_user_quota_query: boolean
   group: string
   auto_groups: string[]
   cross_group_retry: boolean
