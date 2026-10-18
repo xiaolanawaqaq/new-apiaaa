@@ -21,6 +21,7 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import { buildQueryParams } from './lib/query-params'
 import { parseTaskArtifactsResponse } from './lib/task-artifacts'
 import type {
+  ClientAgentUsageResponse,
   GetLogsParams,
   GetLogsResponse,
   GetLogStatsParams,
@@ -81,6 +82,16 @@ export const getUserLogs = (
 
 export const getLogStats = (params: GetLogStatsParams = {}) =>
   fetchLogStats('/api/log', params, true)
+
+export async function getClientAgentUsage(
+  params: GetLogsParams = {}
+): Promise<ClientAgentUsageResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const res = await api.get(`/api/log/client_usage?${queryParams}`)
+  return res.data
+}
 
 export const getUserLogStats = (
   params: Omit<GetLogStatsParams, 'username' | 'channel'> = {}

@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQueryClient, useIsFetching, useQuery } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, BarChart3 } from 'lucide-react'
 import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -48,6 +48,7 @@ import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
 import type { CommonLogFilters } from '../types'
+import { ClientUsageDialog } from './dialogs/client-usage-dialog'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
@@ -125,6 +126,7 @@ export function CommonLogsFilterBar<TData>(
   const searchParams = route.useSearch()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
+  const [clientUsageOpen, setClientUsageOpen] = useState(false)
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
   const { data: adminGroups } = useQuery({
     queryKey: ['groups'],
@@ -297,6 +299,24 @@ export function CommonLogsFilterBar<TData>(
   )
 
   const statsBar = <CommonLogsStats />
+  const clientUsageToggle = isAdmin ? (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant='ghost'
+            size='icon'
+            onClick={() => setClientUsageOpen(true)}
+            aria-label={t('Client usage')}
+            className='text-muted-foreground hover:text-foreground size-7 max-sm:size-11'
+          />
+        }
+      >
+        <BarChart3 />
+      </TooltipTrigger>
+      <TooltipContent>{t('Client usage')}</TooltipContent>
+    </Tooltip>
+  ) : null
   const sensitiveToggle = (
     <Tooltip>
       <TooltipTrigger
@@ -484,39 +504,56 @@ export function CommonLogsFilterBar<TData>(
   )
 
   return (
-    <LogsFilterToolbar
-      table={props.table}
-      compactMobile
-      stats={statsBar}
-      actionStart={sensitiveToggle}
-      primaryFilters={
-        <>
-          {dateRangeFilter}
-          {modelFilter}
-          {groupFilter}
-          {typeFilter}
-        </>
-      }
-      advancedFilters={advancedFilters}
-      mobilePinnedFilters={dateRangeFilter}
-      mobileFilters={
-        <>
-          {modelFilter}
-          {groupFilter}
-          {typeFilter}
-          {advancedFilters}
-        </>
-      }
-      mobileFilterCount={
-        [filters.model, filters.group, hasTypeFilter].filter(Boolean).length +
-        expandedFilterCount
-      }
-      hasAdvancedActiveFilters={hasExpandedFilters}
-      advancedFilterCount={expandedFilterCount}
-      hasActiveFilters={hasAdditionalFilters}
-      onSearch={() => handleApply()}
-      searchLoading={fetchingLogs > 0}
-      onReset={handleReset}
-    />
+    <>
+      <LogsFilterToolbar
+        table={props.table}
+        compactMobile
+        stats={statsBar}
+        actionStart={
+          clientUsageToggle ? (
+            <>
+              {clientUsageToggle}
+              {sensitiveToggle}
+            </>
+          ) : (
+            sensitiveToggle
+          )
+        }
+        primaryFilters={
+          <>
+            {dateRangeFilter}
+            {modelFilter}
+            {groupFilter}
+            {typeFilter}
+          </>
+        }
+        advancedFilters={advancedFilters}
+        mobilePinnedFilters={dateRangeFilter}
+        mobileFilters={
+          <>
+            {modelFilter}
+            {groupFilter}
+            {typeFilter}
+            {advancedFilters}
+          </>
+        }
+        mobileFilterCount={
+          [filters.model, filters.group, hasTypeFilter].filter(Boolean).length +
+          expandedFilterCount
+        }
+        hasAdvancedActiveFilters={hasExpandedFilters}
+        advancedFilterCount={expandedFilterCount}
+        hasActiveFilters={hasAdditionalFilters}
+        onSearch={() => handleApply()}
+        searchLoading={fetchingLogs > 0}
+        onReset={handleReset}
+      />
+      {isAdmin ? (
+        <ClientUsageDialog
+          open={clientUsageOpen}
+          onOpenChange={setClientUsageOpen}
+        />
+      ) : null}
+    </>
   )
 }

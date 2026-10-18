@@ -437,6 +437,29 @@ export interface GetLogsParams {
   upstream_request_id?: string
 }
 
+export interface ClientAgentUsageRow {
+  client_agent: string
+  user_agent?: string
+  requests: number
+  errors: number
+  prompt_tokens: number
+  completion_tokens: number
+  quota: number
+  last_seen: number
+}
+
+export interface ClientAgentUsageResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ClientAgentUsageRow[]
+    unknown_user_agents: ClientAgentUsageRow[]
+    scanned: number
+    truncated: boolean
+    generated_at: number
+  }
+}
+
 export interface GetLogsResponse {
   success: boolean
   message?: string

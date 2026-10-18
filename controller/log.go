@@ -127,6 +127,31 @@ func GetLogsStat(c *gin.Context) {
 	return
 }
 
+// GetLogsClientUsage aggregates usage and error logs by the calling client
+// agent recorded at relay time. Only administrators can reach this route; the
+// identity fields live in the log's admin-only scope.
+func GetLogsClientUsage(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	result, err := model.SumClientAgentUsage(model.ClientAgentUsageQuery{
+		StartTimestamp: startTimestamp,
+		EndTimestamp:   endTimestamp,
+		Username:       c.Query("username"),
+		ModelName:      c.Query("model_name"),
+		TokenName:      c.Query("token_name"),
+		Channel:        channel,
+		Group:          c.Query("group"),
+		Limit:          limit,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
 func GetLogsSelfStat(c *gin.Context) {
 	username := c.GetString("username")
 	logType, _ := strconv.Atoi(c.Query("type"))
