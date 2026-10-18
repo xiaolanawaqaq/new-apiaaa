@@ -152,6 +152,35 @@ func GetLogsClientUsage(c *gin.Context) {
 	common.ApiSuccess(c, result)
 }
 
+// GetLogsClientUsageLogs returns the request-level details behind one client
+// bucket from the client usage analysis. Administrators only, like the summary.
+func GetLogsClientUsageLogs(c *gin.Context) {
+	startTimestamp, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endTimestamp, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	channel, _ := strconv.Atoi(c.Query("channel"))
+	page, _ := strconv.Atoi(c.Query("p"))
+	pageSize, _ := strconv.Atoi(c.Query("page_size"))
+	result, err := model.ListClientAgentLogs(model.ClientAgentLogQuery{
+		ClientAgent:    c.Query("client_agent"),
+		RawUserAgent:   c.Query("user_agent"),
+		Unknown:        c.Query("unknown") == "true",
+		StartTimestamp: startTimestamp,
+		EndTimestamp:   endTimestamp,
+		Username:       c.Query("username"),
+		ModelName:      c.Query("model_name"),
+		TokenName:      c.Query("token_name"),
+		Channel:        channel,
+		Group:          c.Query("group"),
+		Page:           page,
+		PageSize:       pageSize,
+	})
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
+}
+
 func GetLogsSelfStat(c *gin.Context) {
 	username := c.GetString("username")
 	logType, _ := strconv.Atoi(c.Query("type"))

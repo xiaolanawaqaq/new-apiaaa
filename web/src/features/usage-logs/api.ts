@@ -21,6 +21,7 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import { buildQueryParams } from './lib/query-params'
 import { parseTaskArtifactsResponse } from './lib/task-artifacts'
 import type {
+  ClientAgentLogsResponse,
   ClientAgentUsageResponse,
   GetLogsParams,
   GetLogsResponse,
@@ -90,6 +91,20 @@ export async function getClientAgentUsage(
     params as unknown as Record<string, unknown>
   )
   const res = await api.get(`/api/log/client_usage?${queryParams}`)
+  return res.data
+}
+
+export async function getClientAgentUsageLogs(
+  params: GetLogsParams & {
+    client_agent?: string
+    user_agent?: string
+    unknown?: string
+  } = {}
+): Promise<ClientAgentLogsResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const res = await api.get(`/api/log/client_usage/logs?${queryParams}`)
   return res.data
 }
 

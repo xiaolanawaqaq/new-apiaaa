@@ -205,3 +205,167 @@ func normalizeUnknownUserAgent(rawUserAgent string) string {
 	}
 	return rawUserAgent
 }
+
+const (
+	clientAgentLogsDefaultPageSize = 20
+	clientAgentLogsMaxPageSize     = 100
+	clientAgentLogsScanLimit       = 50000
+)
+
+// ClientAgentLogQuery selects the individual logs behind one aggregated row.
+// ClientAgent identifies a recognized agent; otherwise RawUserAgent selects an
+// unrecognized bucket (empty matches logs with no client identity at all).
+type ClientAgentLogQuery struct {
+	ClientAgent    string
+	RawUserAgent   string
+	Unknown        bool
+	StartTimestamp int64
+	EndTimestamp   int64
+	Username       string
+	ModelName      string
+	TokenName      string
+	Channel        int
+	Group          string
+	Page           int
+	PageSize       int
+}
+
+// ClientAgentLogItem is the request-level detail shown when an administrator
+// drills into a client. It carries no credentials and no admin-only routing
+// metadata beyond the identifiers already visible in the log list.
+type ClientAgentLogItem struct {
+	Id               int    `json:"id"`
+	CreatedAt        int64  `json:"created_at"`
+	Type             int    `json:"type"`
+	ModelName        string `json:"model_name"`
+	TokenName        string `json:"token_name"`
+	Username         string `json:"username"`
+	ChannelId        int    `json:"channel"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	Quota            int    `json:"quota"`
+	UseTime          int    `json:"use_time"`
+	IsStream         bool   `json:"is_stream"`
+	Content          string `json:"content"`
+	RequestId        string `json:"request_id"`
+}
+
+// ClientAgentLogsResult is bounded by the same scan window as the aggregation,
+// so Total counts matches within the examined logs rather than all history.
+type ClientAgentLogsResult struct {
+	Items     []ClientAgentLogItem `json:"items"`
+	Total     int                  `json:"total"`
+	Page      int                  `json:"page"`
+	PageSize  int                  `json:"page_size"`
+	Scanned   int                  `json:"scanned"`
+	Truncated bool                 `json:"truncated"`
+}
+
+// ListClientAgentLogs returns one page of logs for a single client bucket.
+func ListClientAgentLogs(query ClientAgentLogQuery) (ClientAgentLogsResult, error) {
+	pageSize := query.PageSize
+	if pageSize <= 0 {
+		pageSize = clientAgentLogsDefaultPageSize
+	}
+	if pageSize > clientAgentLogsMaxPageSize {
+		pageSize = clientAgentLogsMaxPageSize
+	}
+	page := query.Page
+	if page <= 0 {
+		page = 1
+	}
+	result := ClientAgentLogsResult{Page: page, PageSize: pageSize}
+
+	tx := LOG_DB.Table("logs").
+		Select("id, created_at, type, model_name, token_name, username, channel_id, prompt_tokens, completion_tokens, quota, use_time, is_stream, content, request_id, other").
+		Where("type IN ?", []int{LogTypeConsume, LogTypeError})
+	if query.StartTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", query.StartTimestamp)
+	}
+	if query.EndTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", query.EndTimestamp)
+	}
+	if query.Username != "" {
+		tx = tx.Where("username = ?", query.Username)
+	}
+	if query.ModelName != "" {
+		tx = tx.Where("model_name = ?", query.ModelName)
+	}
+	if query.TokenName != "" {
+		tx = tx.Where("token_name = ?", query.TokenName)
+	}
+	if query.Channel != 0 {
+		tx = tx.Where("channel_id = ?", query.Channel)
+	}
+	if query.Group != "" {
+		tx = tx.Where(logGroupCol+" = ?", query.Group)
+	}
+
+	cursor, err := tx.Order("created_at DESC, id DESC").Limit(clientAgentLogsScanLimit).Rows()
+	if err != nil {
+		return result, err
+	}
+	defer cursor.Close()
+
+	skip := (page - 1) * pageSize
+	result.Items = make([]ClientAgentLogItem, 0, pageSize)
+	for cursor.Next() {
+		var row struct {
+			Id               int    `gorm:"column:id"`
+			CreatedAt        int64  `gorm:"column:created_at"`
+			Type             int    `gorm:"column:type"`
+			ModelName        string `gorm:"column:model_name"`
+			TokenName        string `gorm:"column:token_name"`
+			Username         string `gorm:"column:username"`
+			ChannelId        int    `gorm:"column:channel_id"`
+			PromptTokens     int    `gorm:"column:prompt_tokens"`
+			CompletionTokens int    `gorm:"column:completion_tokens"`
+			Quota            int    `gorm:"column:quota"`
+			UseTime          int    `gorm:"column:use_time"`
+			IsStream         bool   `gorm:"column:is_stream"`
+			Content          string `gorm:"column:content"`
+			RequestId        string `gorm:"column:request_id"`
+			Other            string `gorm:"column:other"`
+		}
+		if err := LOG_DB.ScanRows(cursor, &row); err != nil {
+			return result, err
+		}
+		result.Scanned++
+		agent, rawUserAgent := clientAgentFromLogOther(row.Other)
+		if query.Unknown {
+			if agent != "" || normalizeUnknownUserAgent(rawUserAgent) != query.RawUserAgent {
+				continue
+			}
+		} else if agent != query.ClientAgent {
+			continue
+		}
+		result.Total++
+		if skip > 0 {
+			skip--
+			continue
+		}
+		if len(result.Items) < pageSize {
+			result.Items = append(result.Items, ClientAgentLogItem{
+				Id:               row.Id,
+				CreatedAt:        row.CreatedAt,
+				Type:             row.Type,
+				ModelName:        row.ModelName,
+				TokenName:        row.TokenName,
+				Username:         row.Username,
+				ChannelId:        row.ChannelId,
+				PromptTokens:     row.PromptTokens,
+				CompletionTokens: row.CompletionTokens,
+				Quota:            row.Quota,
+				UseTime:          row.UseTime,
+				IsStream:         row.IsStream,
+				Content:          row.Content,
+				RequestId:        row.RequestId,
+			})
+		}
+	}
+	if err := cursor.Err(); err != nil {
+		return result, err
+	}
+	result.Truncated = result.Scanned >= clientAgentLogsScanLimit
+	return result, nil
+}

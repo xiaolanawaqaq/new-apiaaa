@@ -460,6 +460,36 @@ export interface ClientAgentUsageResponse {
   }
 }
 
+export interface ClientAgentLogItem {
+  id: number
+  created_at: number
+  type: number
+  model_name: string
+  token_name: string
+  username: string
+  channel: number
+  prompt_tokens: number
+  completion_tokens: number
+  quota: number
+  use_time: number
+  is_stream: boolean
+  content: string
+  request_id: string
+}
+
+export interface ClientAgentLogsResponse {
+  success: boolean
+  message?: string
+  data?: {
+    items: ClientAgentLogItem[]
+    total: number
+    page: number
+    page_size: number
+    scanned: number
+    truncated: boolean
+  }
+}
+
 export interface GetLogsResponse {
   success: boolean
   message?: string

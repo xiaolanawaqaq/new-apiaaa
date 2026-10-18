@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { BarChart3, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BarChart3, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
+import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { TitledCard } from '@/components/ui/titled-card'
 import {
@@ -16,110 +18,26 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import { cn } from '@/lib/utils'
 import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { cn } from '@/lib/utils'
 
-import { getClientAgentUsage } from '../api'
-import type { ClientAgentUsageRow } from '../types'
-import { buildApiParams } from '../lib/utils'
+import { getLogTypeConfig } from '../../lib'
+import { buildApiParams } from '../../lib/utils'
+import { getClientAgentUsage, getClientAgentUsageLogs } from '../api'
+import type { ClientAgentLogItem, ClientAgentUsageRow } from '../types'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
-function formatRate(requests: number, errors: number) {
-  if (requests <= 0) return '-'
-  return `${Math.round(((requests - errors) / requests) * 100)}%`
-}
-
-function ClientUsageTable(props: {
-  rows: ClientAgentUsageRow[]
+type ClientSelection = {
+  clientAgent: string
+  rawUserAgent?: string
   unknown?: boolean
-}) {
-  const { t } = useTranslation()
-  const hasData = props.rows.length > 0
-
-  return (
-    <Table withContainer={false}>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{props.unknown ? t('User Agent') : t('Client')}</TableHead>
-          <TableHead className='text-right'>{t('Requests')}</TableHead>
-          <TableHead className='text-right'>{t('Errors')}</TableHead>
-          <TableHead className='text-right'>{t('Tokens')}</TableHead>
-          <TableHead className='text-right'>{t('Quota')}</TableHead>
-          <TableHead className='text-right'>{t('Last seen')}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {hasData ? (
-          props.rows.map((row) => (
-            <TableRow key={`${row.client_agent}:${row.user_agent ?? ''}`}>
-              <TableCell className='max-w-[260px]'>
-                {props.unknown && row.user_agent ? (
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <span className='block max-w-[260px] truncate font-mono text-xs' />
-                      }
-                    >
-                      {row.user_agent}
-                    </TooltipTrigger>
-                    <TooltipContent side='top' className='max-w-xs break-all'>
-                      {row.user_agent}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : (
-                  <span className='text-sm'>
-                    {row.client_agent || t('Unknown')}
-                  </span>
-                )}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatNumber(row.requests)}
-              </TableCell>
-              <TableCell
-                className={cn(
-                  'text-right font-mono text-xs tabular-nums',
-                  row.errors > 0 && 'text-destructive'
-                )}
-              >
-                {formatNumber(row.errors)}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatNumber(row.prompt_tokens + row.completion_tokens)}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatLogQuota(row.quota)}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatTimestampToDate(row.last_seen)}
-              </TableCell>
-            </TableRow>
-          ))
-        ) : (
-          <TableRow>
-            <TableCell colSpan={6} className='text-muted-foreground text-center'>
-              {t('No data')}
-            </TableCell>
-          </TableRow>
-        )}
-      </TableBody>
-    </Table>
-  )
 }
 
-export function ClientUsageDialog(props: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useTranslation()
+function useClientUsageQuery(open: boolean) {
   const searchParams = route.useSearch()
-  const query = useQuery({
+  return useQuery({
     queryKey: ['usage-logs-client-usage', searchParams],
     queryFn: async () => {
       const params = buildApiParams({
@@ -141,14 +59,271 @@ export function ClientUsageDialog(props: {
         })
       )
     },
-    enabled: props.open,
+    enabled: open,
     placeholderData: (previousData) => previousData,
   })
+}
+
+function ClientUsageTable(props: {
+  rows: ClientAgentUsageRow[]
+  unknown?: boolean
+  onSelect: (selection: ClientSelection) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <Table withContainer={false}>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{props.unknown ? t('User Agent') : t('Client')}</TableHead>
+          <TableHead className='text-right'>{t('Requests')}</TableHead>
+          <TableHead className='text-right'>{t('Errors')}</TableHead>
+          <TableHead className='text-right'>{t('Tokens')}</TableHead>
+          <TableHead className='text-right'>{t('Quota')}</TableHead>
+          <TableHead className='text-right'>{t('Last seen')}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {props.rows.length > 0 ? (
+          props.rows.map((row) => {
+            const label = props.unknown
+              ? row.user_agent || ''
+              : row.client_agent
+            let selection: ClientSelection
+            if (props.unknown) {
+              selection = { clientAgent: '', rawUserAgent: label, unknown: true }
+            } else {
+              selection = { clientAgent: row.client_agent }
+            }
+            return (
+              <TableRow key={`${row.client_agent}:${row.user_agent ?? ''}`}>
+                <TableCell className='max-w-[260px]'>
+                  <button
+                    type='button'
+                    className='block max-w-[260px] truncate text-left text-sm underline-offset-4 hover:underline'
+                    aria-label={label || t('Unknown')}
+                    onClick={() => props.onSelect(selection)}
+                  >
+                    {label || t('Unknown')}
+                  </button>
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatNumber(row.requests)}
+                </TableCell>
+                <TableCell
+                  className={cn(
+                    'text-right font-mono text-xs tabular-nums',
+                    row.errors > 0 && 'text-destructive'
+                  )}
+                >
+                  {formatNumber(row.errors)}
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatNumber(row.prompt_tokens + row.completion_tokens)}
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatLogQuota(row.quota)}
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatTimestampToDate(row.last_seen)}
+                </TableCell>
+              </TableRow>
+            )
+          })
+        ) : (
+          <TableRow>
+            <TableCell colSpan={6} className='text-muted-foreground text-center'>
+              {t('No data')}
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  )
+}
+
+function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
+  const { t } = useTranslation()
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>{t('Time')}</TableHead>
+          <TableHead>{t('Type')}</TableHead>
+          <TableHead>{t('Model')}</TableHead>
+          <TableHead className='text-right'>{t('Tokens')}</TableHead>
+          <TableHead className='text-right'>{t('Quota')}</TableHead>
+          <TableHead>{t('Details')}</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {props.items.map((item) => {
+          const config = getLogTypeConfig(item.type)
+          return (
+            <TableRow key={item.id}>
+              <TableCell className='font-mono text-xs tabular-nums'>
+                {formatTimestampToDate(item.created_at)}
+              </TableCell>
+              <TableCell>
+                <StatusBadge
+                  label={t(config.label)}
+                  variant={config.color as StatusBadgeProps['variant']}
+                  copyable={false}
+                />
+              </TableCell>
+              <TableCell className='max-w-[160px] truncate text-xs'>
+                {item.model_name || '-'}
+              </TableCell>
+              <TableCell className='text-right font-mono text-xs tabular-nums'>
+                {formatNumber(item.prompt_tokens + item.completion_tokens)}
+              </TableCell>
+              <TableCell className='text-right font-mono text-xs tabular-nums'>
+                {formatLogQuota(item.quota)}
+              </TableCell>
+              <TableCell className='max-w-[220px]'>
+                <span
+                  className='block truncate text-xs'
+                  title={item.content}
+                >
+                  {item.content || '-'}
+                </span>
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+function ClientDetail(props: {
+  selection: ClientSelection
+  onBack: () => void
+}) {
+  const { t } = useTranslation()
+  const searchParams = route.useSearch()
+  const [page, setPage] = useState(1)
+  const pageSize = 20
+  const query = useQuery({
+    queryKey: [
+      'usage-logs-client-detail',
+      searchParams,
+      props.selection,
+      page,
+    ],
+    queryFn: async () => {
+      const params = buildApiParams({
+        page: 1,
+        pageSize: 1,
+        searchParams,
+        columnFilters: [],
+        isAdmin: true,
+      })
+      return requireServerSuccess(
+        await getClientAgentUsageLogs({
+          start_timestamp: params.start_timestamp,
+          end_timestamp: params.end_timestamp,
+          username: params.username,
+          model_name: params.model_name,
+          token_name: params.token_name,
+          channel: params.channel,
+          group: params.group,
+          client_agent: props.selection.clientAgent || undefined,
+          user_agent: props.selection.rawUserAgent || undefined,
+          unknown: props.selection.unknown ? 'true' : undefined,
+          p: page,
+          page_size: pageSize,
+        })
+      )
+    },
+    placeholderData: (previousData) => previousData,
+  })
+
+  const data = query.data.data
+  const total = data?.total ?? 0
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  return (
+    <div className='min-w-0 space-y-4'>
+      <div className='flex flex-wrap items-center justify-between gap-2'>
+        <div className='flex min-w-0 items-center gap-2'>
+          <Button variant='ghost' size='sm' onClick={props.onBack}>
+            <ArrowLeft className='size-3.5' aria-hidden='true' />
+            {t('Back')}
+          </Button>
+          <span className='truncate text-sm font-medium'>
+            {props.selection.rawUserAgent || props.selection.clientAgent}
+          </span>
+        </div>
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => void query.refetch()}
+          disabled={query.isFetching}
+        >
+          <RefreshCw
+            className={cn('size-3.5', query.isFetching && 'animate-spin')}
+            aria-hidden='true'
+          />
+          {t('Refresh')}
+        </Button>
+      </div>
+
+      {query.isPending ? (
+        <LoadingState />
+      ) : query.isError ? (
+        <ErrorState
+          title={t('Failed to load')}
+          onRetry={() => void query.refetch()}
+        />
+      ) : (
+        <>
+          <ClientLogsTable items={data?.items ?? []} />
+          <div className='flex items-center justify-end gap-2'>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+            >
+              {t('Previous')}
+            </Button>
+            <span className='text-muted-foreground text-xs tabular-nums'>
+              {page} / {totalPages}
+            </span>
+            <Button
+              variant='outline'
+              size='sm'
+              disabled={page >= totalPages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              {t('Next')}
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+export function ClientUsageDialog(props: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const [selection, setSelection] = useState<ClientSelection | null>(null)
+  const query = useClientUsageQuery(props.open)
+
+  const handleOpenChange = (open: boolean) => {
+    if (!open) setSelection(null)
+    props.onOpenChange(open)
+  }
 
   return (
     <Dialog
       open={props.open}
-      onOpenChange={props.onOpenChange}
+      onOpenChange={handleOpenChange}
       title={
         <span className='flex items-center gap-2'>
           <BarChart3 className='size-4' aria-hidden='true' />
@@ -159,7 +334,12 @@ export function ClientUsageDialog(props: {
       contentClassName='sm:max-w-3xl'
       contentHeight='min(70dvh, 640px)'
     >
-      {query.isPending ? (
+      {selection ? (
+        <ClientDetail
+          selection={selection}
+          onBack={() => setSelection(null)}
+        />
+      ) : query.isPending ? (
         <LoadingState />
       ) : query.isError ? (
         <ErrorState
@@ -175,7 +355,10 @@ export function ClientUsageDialog(props: {
             disableHoverEffect
             contentClassName='overflow-x-auto'
           >
-            <ClientUsageTable rows={query.data.data?.items ?? []} />
+            <ClientUsageTable
+              rows={query.data.data?.items ?? []}
+              onSelect={setSelection}
+            />
           </TitledCard>
           <TitledCard
             title={t('Unrecognized clients')}
@@ -187,6 +370,7 @@ export function ClientUsageDialog(props: {
             <ClientUsageTable
               rows={query.data.data?.unknown_user_agents ?? []}
               unknown
+              onSelect={setSelection}
             />
           </TitledCard>
           <div className='flex flex-wrap items-center justify-between gap-2'>

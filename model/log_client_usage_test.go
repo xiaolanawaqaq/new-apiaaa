@@ -96,3 +96,65 @@ func TestSumClientAgentUsageIgnoresMalformedOther(t *testing.T) {
 	require.Len(t, result.Unknown, 1)
 	assert.Equal(t, "", result.Unknown[0].RawUserAgent)
 }
+
+func seedClientAgentDetailLog(t *testing.T, clientAgent, rawUserAgent string, createdAt int64, modelName string) {
+	t.Helper()
+	adminInfo := map[string]any{}
+	if clientAgent != "" {
+		adminInfo["client_agent"] = clientAgent
+	}
+	if rawUserAgent != "" {
+		adminInfo["user_agent"] = rawUserAgent
+	}
+	other := ""
+	if len(adminInfo) > 0 {
+		other = common.MapToJsonStr(map[string]any{"admin_info": adminInfo})
+	}
+	require.NoError(t, LOG_DB.Create(&Log{
+		UserId:           1,
+		CreatedAt:        createdAt,
+		Type:             LogTypeConsume,
+		ModelName:        modelName,
+		TokenName:        "test-token",
+		Quota:            10,
+		RequestId:        "req-" + modelName,
+		Content:          "consume " + modelName,
+		Other:            other,
+		PromptTokens:     1,
+		CompletionTokens: 2,
+	}).Error)
+}
+
+func TestListClientAgentLogsFiltersByBucketAndPaginates(t *testing.T) {
+	truncateTables(t)
+
+	seedClientAgentDetailLog(t, "Cursor 0.48.7", "Cursor/0.48.7", 1000, "model-a")
+	seedClientAgentDetailLog(t, "Cursor 0.48.7", "Cursor/0.48.7", 2000, "model-b")
+	seedClientAgentDetailLog(t, "Cursor 0.48.7", "Cursor/0.48.7", 3000, "model-c")
+	seedClientAgentDetailLog(t, "Cline 3.4.0", "Cline/3.4.0", 4000, "model-d")
+	seedClientAgentDetailLog(t, "", "UnknownTool/1.0", 5000, "model-e")
+
+	first, err := ListClientAgentLogs(ClientAgentLogQuery{ClientAgent: "Cursor 0.48.7", Page: 1, PageSize: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 3, first.Total)
+	require.Len(t, first.Items, 2)
+	assert.Equal(t, "model-c", first.Items[0].ModelName, "newest log comes first")
+	assert.Equal(t, "model-b", first.Items[1].ModelName)
+
+	second, err := ListClientAgentLogs(ClientAgentLogQuery{ClientAgent: "Cursor 0.48.7", Page: 2, PageSize: 2})
+	require.NoError(t, err)
+	assert.Equal(t, 3, second.Total)
+	require.Len(t, second.Items, 1)
+	assert.Equal(t, "model-a", second.Items[0].ModelName)
+
+	unknown, err := ListClientAgentLogs(ClientAgentLogQuery{Unknown: true, RawUserAgent: "UnknownTool/1.0"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, unknown.Total)
+	require.Len(t, unknown.Items, 1)
+	assert.Equal(t, "model-e", unknown.Items[0].ModelName)
+
+	other, err := ListClientAgentLogs(ClientAgentLogQuery{ClientAgent: "Cline 3.4.0"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, other.Total)
+	assert.Equal(t, "model-d", other.Items[0].ModelName)
+}
