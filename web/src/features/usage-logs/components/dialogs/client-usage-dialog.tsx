@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { ArrowLeft, BarChart3, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BarChart3, Copy, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -154,12 +154,15 @@ function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
           <TableHead>{t('Model')}</TableHead>
           <TableHead className='text-right'>{t('Tokens')}</TableHead>
           <TableHead className='text-right'>{t('Quota')}</TableHead>
-          <TableHead>{t('Details')}</TableHead>
+          <TableHead>{t('Request Path')}</TableHead>
+          <TableHead>{t('Content')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {props.items.map((item) => {
           const config = getLogTypeConfig(item.type)
+          const other = parseLogOther(item.content)
+          const requestPath = other?.request_path || ''
           return (
             <TableRow key={item.id}>
               <TableCell className='font-mono text-xs tabular-nums'>
@@ -181,13 +184,32 @@ function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
               <TableCell className='text-right font-mono text-xs tabular-nums'>
                 {formatLogQuota(item.quota)}
               </TableCell>
-              <TableCell className='max-w-[220px]'>
-                <span
-                  className='block truncate text-xs'
-                  title={item.content}
-                >
-                  {item.content || '-'}
-                </span>
+              <TableCell className='max-w-[200px] truncate text-xs font-mono'>
+                {requestPath || '-'}
+              </TableCell>
+              <TableCell className='max-w-[260px]'>
+                <div className='relative group'>
+                  <span
+                    className='block truncate text-xs'
+                    title={item.content || '-'}
+                  >
+                    {item.content || '-'}
+                  </span>
+                  {item.content && (
+                    <Button
+                      variant='ghost'
+                      size='icon'
+                      className='absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity'
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        navigator.clipboard.writeText(item.content)
+                      }}
+                      aria-label={t('Copy content')}
+                    >
+                      <Copy className='size-3' />
+                    </Button>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           )
