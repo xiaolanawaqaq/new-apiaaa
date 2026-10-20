@@ -369,3 +369,111 @@ func ListClientAgentLogs(query ClientAgentLogQuery) (ClientAgentLogsResult, erro
 	result.Truncated = result.Scanned >= clientAgentLogsScanLimit
 	return result, nil
 }
+
+// ClientAgentUsageTrendPoint is one time-bucket of client-agent usage trend data.
+type ClientAgentUsageTrendPoint struct {
+	WindowStart int64 `json:"window_start"` // unix seconds
+	Requests    int64 `json:"requests"`
+	Errors      int64 `json:"errors"`
+	Quota       int64 `json:"quota"`
+}
+
+// ClientAgentUsageTrendQuery bounds a client-agent usage trend query.
+type ClientAgentUsageTrendQuery struct {
+	StartTimestamp int64
+	EndTimestamp   int64
+	Username       string
+	ModelName      string
+	TokenName      string
+	Channel        int
+	Group          string
+	ClientAgent    string
+	RawUserAgent   string
+	Unknown        bool
+	// BucketSeconds is the time bucket width in seconds (e.g. 3600 for hourly).
+	BucketSeconds int64
+}
+
+// SumClientAgentUsageTrend aggregates consume and error logs into time buckets
+// for client-agent trend charts. Aggregation runs in Go because the client
+// identity lives inside a JSON column.
+func SumClientAgentUsageTrend(query ClientAgentUsageTrendQuery) ([]ClientAgentUsageTrendPoint, error) {
+	bucketSeconds := query.BucketSeconds
+	if bucketSeconds <= 0 {
+		bucketSeconds = 3600
+	}
+
+	tx := LOG_DB.Table("logs").
+		Select("created_at, type, quota, other").
+		Where("type IN ?", []int{LogTypeConsume, LogTypeError})
+	if query.StartTimestamp != 0 {
+		tx = tx.Where("created_at >= ?", query.StartTimestamp)
+	}
+	if query.EndTimestamp != 0 {
+		tx = tx.Where("created_at <= ?", query.EndTimestamp)
+	}
+	if query.Username != "" {
+		tx = tx.Where("username = ?", query.Username)
+	}
+	if query.ModelName != "" {
+		tx = tx.Where("model_name = ?", query.ModelName)
+	}
+	if query.TokenName != "" {
+		tx = tx.Where("token_name = ?", query.TokenName)
+	}
+	if query.Channel != 0 {
+		tx = tx.Where("channel_id = ?", query.Channel)
+	}
+	if query.Group != "" {
+		tx = tx.Where(logGroupCol+" = ?", query.Group)
+	}
+
+	var rows struct {
+		CreatedAt int64
+		Type      int
+		Quota     int64
+		Other     string
+	}
+	cursor, err := tx.Order("created_at ASC").Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close()
+
+	buckets := make(map[int64]*ClientAgentUsageTrendPoint)
+	for cursor.Next() {
+		if err := LOG_DB.ScanRows(cursor, &rows); err != nil {
+			return nil, err
+		}
+		agent, rawUserAgent := clientAgentFromLogOther(rows.Other)
+		if query.ClientAgent != "" && agent != query.ClientAgent {
+			continue
+		}
+		if query.Unknown {
+			if agent != "" || normalizeUnknownUserAgent(rawUserAgent) != query.RawUserAgent {
+				continue
+			}
+		}
+
+		window := rows.CreatedAt / bucketSeconds * bucketSeconds
+		point := buckets[window]
+		if point == nil {
+			point = &ClientAgentUsageTrendPoint{WindowStart: window}
+			buckets[window] = point
+		}
+		point.Requests++
+		if rows.Type == LogTypeError {
+			point.Errors++
+		}
+		point.Quota += rows.Quota
+	}
+
+	points := make([]ClientAgentUsageTrendPoint, 0, len(buckets))
+	for _, point := range buckets {
+		points = append(points, *point)
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].WindowStart < points[j].WindowStart
+	})
+	return points, nil
+}

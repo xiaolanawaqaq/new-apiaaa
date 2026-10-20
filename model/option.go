@@ -66,6 +66,7 @@ func InitOptionMap() {
 	common.OptionMap["ChannelDisableThreshold"] = strconv.FormatFloat(common.ChannelDisableThreshold, 'f', -1, 64)
 	common.OptionMap["ChannelFailureThreshold"] = strconv.Itoa(common.ChannelFailureThreshold)
 	common.OptionMap["ChannelHealthProbeIntervalSeconds"] = strconv.Itoa(common.ChannelHealthProbeIntervalSeconds)
+	common.OptionMap["ClientAgentRateLimits"] = common.ClientAgentRateLimits
 	common.OptionMap["EmailDomainRestrictionEnabled"] = strconv.FormatBool(common.EmailDomainRestrictionEnabled)
 	common.OptionMap["EmailAliasRestrictionEnabled"] = strconv.FormatBool(common.EmailAliasRestrictionEnabled)
 	common.OptionMap["EmailDomainWhitelist"] = strings.Join(common.EmailDomainWhitelist, ",")
@@ -717,6 +718,8 @@ func updateOptionMap(key string, value string) (err error) {
 		if parseErr == nil && parsed >= 10 {
 			common.ChannelHealthProbeIntervalSeconds = parsed
 		}
+	case "ClientAgentRateLimits":
+		common.ClientAgentRateLimits = value
 	case "QuotaPerUnit":
 		common.QuotaPerUnit, _ = strconv.ParseFloat(value, 64)
 	case "SensitiveWords":

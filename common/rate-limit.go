@@ -78,7 +78,22 @@ type InMemoryRateLimiter struct {
 	expirationDuration time.Duration
 }
 
-// Init initializes the limiter once. Repeated calls leave the first configuration unchanged.
+// NewInMemoryRateLimiter creates an idle-ready sliding-window limiter.
+func NewInMemoryRateLimiter() *InMemoryRateLimiter {
+	l := &InMemoryRateLimiter{
+		store:              make(map[string]*rateLimitEntry),
+		lru:                list.New(),
+		reservations:       make(map[string]int),
+		expirationDuration: RateLimitKeyExpirationDuration,
+	}
+	if l.expirationDuration > 0 {
+		go l.clearExpiredItems(time.NewTicker(l.expirationDuration).C)
+	}
+	return l
+}
+
+// Init initializes the limiter once (retained for callers that construct the
+// struct directly). Repeated calls leave the first configuration unchanged.
 func (l *InMemoryRateLimiter) Init(expirationDuration time.Duration) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

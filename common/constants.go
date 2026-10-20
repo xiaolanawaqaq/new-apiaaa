@@ -142,6 +142,8 @@ var ChannelHealthProbeIntervalSeconds = 60
 var QuotaRemindEnabled = true
 var QuotaRemindThreshold = 1000
 
+var ClientAgentRateLimits = ""
+
 // PreConsumedQuota is retained for old option clients; token reservations now
 // use quota_setting.pre_consume_multiplier and the estimated input cost.
 var PreConsumedQuota = 500
