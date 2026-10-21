@@ -159,7 +159,13 @@ export function ClientUsageTrendDialog(props: {
   const { t } = useTranslation()
   const searchParams = route.useSearch()
   const query = useQuery({
-    queryKey: ['usage-logs-client-trend', searchParams, props],
+    queryKey: [
+      'usage-logs-client-trend',
+      searchParams,
+      props.clientAgent,
+      props.rawUserAgent,
+      props.unknown,
+    ],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
