@@ -233,6 +233,11 @@ type ClientAgentLogQuery struct {
 // ClientAgentLogItem is the request-level detail shown when an administrator
 // drills into a client. It carries no credentials and no admin-only routing
 // metadata beyond the identifiers already visible in the log list.
+//
+// RequestContent and ResponseContent come from prompt_content_logs, which only
+// holds rows while SecureContentLogEnabled is on and until the retention
+// window expires. Both stay empty otherwise; ContentCaptured tells the caller
+// whether the pair was found at all.
 type ClientAgentLogItem struct {
 	Id               int    `json:"id"`
 	CreatedAt        int64  `json:"created_at"`
@@ -248,17 +253,22 @@ type ClientAgentLogItem struct {
 	IsStream         bool   `json:"is_stream"`
 	Content          string `json:"content"`
 	RequestId        string `json:"request_id"`
+	RequestPath      string `json:"request_path,omitempty"`
+	RequestContent   string `json:"request_content,omitempty"`
+	ResponseContent  string `json:"response_content,omitempty"`
+	ContentCaptured  bool   `json:"content_captured"`
 }
 
 // ClientAgentLogsResult is bounded by the same scan window as the aggregation,
 // so Total counts matches within the examined logs rather than all history.
 type ClientAgentLogsResult struct {
-	Items     []ClientAgentLogItem `json:"items"`
-	Total     int                  `json:"total"`
-	Page      int                  `json:"page"`
-	PageSize  int                  `json:"page_size"`
-	Scanned   int                  `json:"scanned"`
-	Truncated bool                 `json:"truncated"`
+	Items                 []ClientAgentLogItem `json:"items"`
+	Total                 int                  `json:"total"`
+	Page                  int                  `json:"page"`
+	PageSize              int                  `json:"page_size"`
+	Scanned               int                  `json:"scanned"`
+	Truncated             bool                 `json:"truncated"`
+	ContentCaptureEnabled bool                 `json:"content_capture_enabled"`
 }
 
 // ListClientAgentLogs returns one page of logs for a single client bucket.
@@ -345,7 +355,7 @@ func ListClientAgentLogs(query ClientAgentLogQuery) (ClientAgentLogsResult, erro
 			continue
 		}
 		if len(result.Items) < pageSize {
-			result.Items = append(result.Items, ClientAgentLogItem{
+			item := ClientAgentLogItem{
 				Id:               row.Id,
 				CreatedAt:        row.CreatedAt,
 				Type:             row.Type,
@@ -360,14 +370,93 @@ func ListClientAgentLogs(query ClientAgentLogQuery) (ClientAgentLogsResult, erro
 				IsStream:         row.IsStream,
 				Content:          row.Content,
 				RequestId:        row.RequestId,
-			})
+				RequestPath:      requestPathFromLogOther(row.Other),
+			}
+			result.Items = append(result.Items, item)
 		}
 	}
 	if err := cursor.Err(); err != nil {
 		return result, err
 	}
 	result.Truncated = result.Scanned >= clientAgentLogsScanLimit
+	attachCapturedContent(result.Items)
 	return result, nil
+}
+
+// attachCapturedContent fills RequestContent/ResponseContent for the current
+// page from prompt_content_logs. Capture is opt-in and short-lived, so missing
+// rows are normal rather than an error; a missing log database (tests) simply
+// leaves the fields empty.
+func attachCapturedContent(items []ClientAgentLogItem) {
+	if len(items) == 0 || LOG_DB == nil {
+		return
+	}
+	requestIDs := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.RequestId != "" {
+			requestIDs = append(requestIDs, item.RequestId)
+		}
+	}
+	if len(requestIDs) == 0 {
+		return
+	}
+	var entries []*PromptContentLog
+	if err := LOG_DB.Model(&PromptContentLog{}).
+		Select("request_id, direction, content").
+		Where("request_id IN ?", requestIDs).
+		Where("expires_at > ?", time.Now().Unix()).
+		Order("id ASC").
+		Find(&entries).Error; err != nil {
+		// Older deployments may predate the table; content is optional here.
+		return
+	}
+	if len(entries) == 0 {
+		return
+	}
+	type contentPair struct{ request, response string }
+	pairs := make(map[string]*contentPair, len(entries))
+	for _, entry := range entries {
+		if entry == nil || entry.RequestID == "" {
+			continue
+		}
+		pair := pairs[entry.RequestID]
+		if pair == nil {
+			pair = &contentPair{}
+			pairs[entry.RequestID] = pair
+		}
+		switch entry.Direction {
+		case PromptContentDirectionRequest:
+			if pair.request == "" {
+				pair.request = entry.Content
+			}
+		case PromptContentDirectionResponse:
+			if pair.response == "" {
+				pair.response = entry.Content
+			}
+		}
+	}
+	for i := range items {
+		pair := pairs[items[i].RequestId]
+		if pair == nil {
+			continue
+		}
+		items[i].RequestContent = pair.request
+		items[i].ResponseContent = pair.response
+		items[i].ContentCaptured = pair.request != "" || pair.response != ""
+	}
+}
+
+// requestPathFromLogOther reads the public request_path recorded on relay logs.
+func requestPathFromLogOther(other string) string {
+	if strings.TrimSpace(other) == "" {
+		return ""
+	}
+	var parsed map[string]any
+	if err := common.UnmarshalJsonStr(other, &parsed); err != nil {
+		return ""
+	}
+	path, _ := parsed["request_path"].(string)
+	return strings.TrimSpace(path)
 }
 
 // ClientAgentUsageTrendPoint is one time-bucket of client-agent usage trend data.

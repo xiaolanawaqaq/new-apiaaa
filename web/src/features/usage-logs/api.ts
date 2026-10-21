@@ -25,6 +25,7 @@ import { parseTaskArtifactsResponse } from './lib/task-artifacts'
 import type {
   ClientAgentLogsResponse,
   ClientAgentUsageResponse,
+  ClientAgentUsageTrendResponse,
   GetLogsParams,
   GetLogsResponse,
   GetLogStatsParams,
@@ -107,6 +108,21 @@ export async function getClientAgentUsageLogs(
     params as unknown as Record<string, unknown>
   )
   const res = await api.get(`/api/log/client_usage/logs?${queryParams}`)
+  return res.data
+}
+
+export async function getClientAgentUsageTrend(
+  params: GetLogsParams & {
+    client_agent?: string
+    user_agent?: string
+    unknown?: string
+    bucket_seconds?: number
+  } = {}
+): Promise<ClientAgentUsageTrendResponse> {
+  const queryParams = buildQueryParams(
+    params as unknown as Record<string, unknown>
+  )
+  const res = await api.get(`/api/log/client_usage/trend?${queryParams}`)
   return res.data
 }
 

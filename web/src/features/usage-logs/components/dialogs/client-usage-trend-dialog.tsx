@@ -1,6 +1,24 @@
-import { BarChart3, RefreshCw } from 'lucide-react'
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
+import { BarChart3, RefreshCw } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -8,65 +26,86 @@ import { Dialog } from '@/components/dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { Button } from '@/components/ui/button'
-import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
+import { formatNumber, formatTimestampToDate } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { buildApiParams } from '../../lib/utils'
-import { getClientAgentUsageTrend } from '../api'
-import type { ClientAgentUsageTrendPoint } from '../types'
+import { getClientAgentUsageTrend } from '../../api'
+import type { ClientAgentUsageTrendPoint } from '../../types'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
-function trendPath(points: number[], width: number, height: number) {
-  if (points.length < 2) {
+const CHART_WIDTH = 640
+const CHART_HEIGHT = 160
+const CHART_PADDING = 12
+
+function trendPath(values: number[], width: number, height: number) {
+  if (values.length === 0) {
     return ''
   }
-  const step = width / (points.length - 1)
-  return points
+  const step = values.length > 1 ? width / (values.length - 1) : 0
+  return values
     .map((value, index) => {
-      const y = height - value
       const x = index * step
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${(height - value).toFixed(1)}`
     })
     .join(' ')
 }
 
-function ClientUsageTrendCard({
-  points,
-  max,
-}: {
+function ClientUsageTrendChart(props: {
   points: ClientAgentUsageTrendPoint[]
-  max: number
 }) {
   const { t } = useTranslation()
-  const width = 320
-  const height = 120
-  const padding = 28
-
-  const chartY = useMemo(
-    () =>
-      points.map((p) => (max > 0 ? (p.Requests / max) * (height - padding) : 0)),
-    [points, max, height]
+  const max = useMemo(
+    () => props.points.reduce((peak, p) => Math.max(peak, p.requests), 0),
+    [props.points]
   )
+  const plotHeight = CHART_HEIGHT - CHART_PADDING * 2
+  const values = useMemo(
+    () =>
+      props.points.map((p) =>
+        max > 0 ? (p.requests / max) * plotHeight : 0
+      ),
+    [props.points, max, plotHeight]
+  )
+  const path = trendPath(values, CHART_WIDTH, CHART_HEIGHT - CHART_PADDING)
+  const totalRequests = props.points.reduce((sum, p) => sum + p.requests, 0)
 
-  const path = trendPath(chartY, width, height)
+  if (props.points.length === 0) {
+    return (
+      <p className='text-muted-foreground py-8 text-center text-sm'>
+        {t('No data')}
+      </p>
+    )
+  }
 
   return (
-    <div className='flex min-w-0 flex-col gap-2'>
+    <div className='min-w-0 space-y-2'>
       <div className='flex items-center justify-between gap-2'>
         <span className='text-sm font-medium'>{t('Requests')}</span>
         <span className='text-muted-foreground text-xs tabular-nums'>
-          {formatNumber(points.reduce((sum, p) => sum + p.Requests, 0))}
+          {formatNumber(totalRequests)}
         </span>
       </div>
-      <div className='relative w-full h-32 min-h-[120px]'>
+      <div className='w-full overflow-x-auto'>
         <svg
-          width={width}
-          height={height}
-          viewBox={`0 0 ${width} ${height}`}
-          className='absolute inset-0'
+          width={CHART_WIDTH}
+          height={CHART_HEIGHT}
+          viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+          className='h-40 w-full min-w-[320px]'
+          role='img'
+          aria-label={t('Client usage trend')}
         >
+          <line
+            x1='0'
+            y1={CHART_HEIGHT - CHART_PADDING}
+            x2={CHART_WIDTH}
+            y2={CHART_HEIGHT - CHART_PADDING}
+            stroke='currentColor'
+            className='text-border'
+            strokeWidth='1'
+          />
           <path
             d={path}
             fill='none'
@@ -75,46 +114,52 @@ function ClientUsageTrendCard({
             strokeLinecap='round'
             strokeLinejoin='round'
           />
-          {chartY.map((y, index) => {
-            const x = index * (width / Math.max(points.length - 1, 1))
+          {values.map((value, index) => {
+            const step =
+              values.length > 1
+                ? CHART_WIDTH / (values.length - 1)
+                : 0
             return (
               <circle
-                key={index}
-                cx={x}
-                cy={y}
-                r={3}
+                key={props.points[index].window_start}
+                cx={index * step}
+                cy={CHART_HEIGHT - CHART_PADDING - value}
+                r='3'
                 fill='#2563eb'
-                className='transition-all hover:r-4 hover:fill-blue-600 cursor-pointer'
-              />
+              >
+                <title>
+                  {`${formatTimestampToDate(props.points[index].window_start)} · ${formatNumber(props.points[index].requests)}`}
+                </title>
+              </circle>
             )
           })}
         </svg>
-        {points.length > 0 && (
-          <div className='absolute top-0 left-0 w-full h-[120px] flex justify-between px-2 text-[10px] text-muted-foreground'>
-            <span>{formatTimestampToDate(points[0].WindowStart)}</span>
-            <span>
-              {formatTimestampToDate(
-                points[points.length - 1].WindowStart
-              )}
-            </span>
-          </div>
-        )}
+      </div>
+      <div className='text-muted-foreground flex justify-between text-[10px] tabular-nums'>
+        <span>
+          {formatTimestampToDate(props.points[0].window_start)}
+        </span>
+        <span>
+          {formatTimestampToDate(
+            props.points[props.points.length - 1].window_start
+          )}
+        </span>
       </div>
     </div>
   )
 }
 
-export function ClientUsageTrendDialog({
-  open,
-  onOpenChange,
-}: {
+export function ClientUsageTrendDialog(props: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  clientAgent?: string
+  rawUserAgent?: string
+  unknown?: boolean
 }) {
   const { t } = useTranslation()
   const searchParams = route.useSearch()
   const query = useQuery({
-    queryKey: ['usage-logs-client-trend', searchParams],
+    queryKey: ['usage-logs-client-trend', searchParams, props],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
@@ -132,40 +177,35 @@ export function ClientUsageTrendDialog({
           token_name: params.token_name,
           channel: params.channel,
           group: params.group,
-          client_agent: params.client_agent || undefined,
-          user_agent: params.user_agent || undefined,
-          unknown: params.unknown === 'true' ? 'true' : undefined,
-          bucket_seconds: params.bucket_seconds || undefined,
+          client_agent: props.clientAgent || undefined,
+          user_agent: props.rawUserAgent || undefined,
+          unknown: props.unknown ? 'true' : undefined,
         })
       )
     },
-    enabled: open,
+    enabled: props.open,
     placeholderData: (previousData) => previousData,
   })
 
-  const trendPoints = useMemo(
-    () => query.data.data?.points ?? [],
-    [query.data]
-  )
-  const maxRequests = useMemo(
-    () =>
-      trendPoints.reduce((max, p) => Math.max(max, p.Requests), 0),
-    [trendPoints]
-  )
+  const points = query.data.data?.points ?? []
 
   return (
     <Dialog
-      open={open}
-      onOpenChange={onOpenChange}
+      open={props.open}
+      onOpenChange={props.onOpenChange}
       title={
         <span className='flex items-center gap-2'>
           <BarChart3 className='size-4' aria-hidden='true' />
           {t('Client usage trend')}
         </span>
       }
-      description={t('Requests per time bucket, aggregated from logs.')}
-      contentClassName='sm:max-w-4xl'
-      contentHeight='min(70dvh, 560px)'
+      description={
+        props.rawUserAgent || props.clientAgent
+          ? props.rawUserAgent || props.clientAgent
+          : t('Requests per time bucket, aggregated from logs.')
+      }
+      contentClassName='sm:max-w-3xl'
+      contentHeight='min(70dvh, 520px)'
     >
       {query.isPending ? (
         <LoadingState />
@@ -176,13 +216,8 @@ export function ClientUsageTrendDialog({
         />
       ) : (
         <div className='min-w-0 space-y-4'>
-          <ClientUsageTrendCard points={trendPoints} max={maxRequests} />
-          <div className='flex items-center justify-end gap-2 mt-2'>
-            <span className='text-muted-foreground text-xs'>
-              {formatTimestampToDate(
-                trendPoints[trendPoints.length - 1]?.WindowStart ?? 0
-              )}
-            </span>
+          <ClientUsageTrendChart points={points} />
+          <div className='flex items-center justify-end gap-2'>
             <Button
               variant='outline'
               size='sm'

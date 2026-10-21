@@ -481,6 +481,10 @@ export interface ClientAgentLogItem {
   is_stream: boolean
   content: string
   request_id: string
+  request_path?: string
+  request_content?: string
+  response_content?: string
+  content_captured: boolean
 }
 
 export interface ClientAgentLogsResponse {
@@ -493,6 +497,22 @@ export interface ClientAgentLogsResponse {
     page_size: number
     scanned: number
     truncated: boolean
+    content_capture_enabled: boolean
+  }
+}
+
+export interface ClientAgentUsageTrendPoint {
+  window_start: number
+  requests: number
+  errors: number
+  quota: number
+}
+
+export interface ClientAgentUsageTrendResponse {
+  success: boolean
+  message?: string
+  data?: {
+    points: ClientAgentUsageTrendPoint[]
   }
 }
 

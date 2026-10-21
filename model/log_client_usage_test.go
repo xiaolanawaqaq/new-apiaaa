@@ -2,6 +2,7 @@ package model
 
 import (
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
@@ -157,4 +158,67 @@ func TestListClientAgentLogsFiltersByBucketAndPaginates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, other.Total)
 	assert.Equal(t, "model-d", other.Items[0].ModelName)
+}
+
+func TestListClientAgentLogsAttachesCapturedContent(t *testing.T) {
+	truncateTables(t)
+
+	seedClientAgentDetailLog(t, "Cursor 0.48.7", "Cursor/0.48.7", 1000, "model-a")
+	seedClientAgentDetailLog(t, "Cursor 0.48.7", "Cursor/0.48.7", 2000, "model-b")
+
+	now := time.Now().Unix()
+	require.NoError(t, LOG_DB.Create(&PromptContentLog{
+		CreatedAt: now,
+		ExpiresAt: now + 3600,
+		RequestID: "req-model-b",
+		Direction: PromptContentDirectionRequest,
+		Content:   "user asked something",
+	}).Error)
+	require.NoError(t, LOG_DB.Create(&PromptContentLog{
+		CreatedAt: now,
+		ExpiresAt: now + 3600,
+		RequestID: "req-model-b",
+		Direction: PromptContentDirectionResponse,
+		Content:   "assistant answered",
+	}).Error)
+	// Expired entries must not resurface.
+	require.NoError(t, LOG_DB.Create(&PromptContentLog{
+		CreatedAt: now - 7200,
+		ExpiresAt: now - 3600,
+		RequestID: "req-model-a",
+		Direction: PromptContentDirectionRequest,
+		Content:   "stale request",
+	}).Error)
+
+	result, err := ListClientAgentLogs(ClientAgentLogQuery{ClientAgent: "Cursor 0.48.7"})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 2)
+
+	newest := result.Items[0]
+	assert.Equal(t, "req-model-b", newest.RequestId)
+	assert.Equal(t, "user asked something", newest.RequestContent)
+	assert.Equal(t, "assistant answered", newest.ResponseContent)
+	assert.True(t, newest.ContentCaptured)
+
+	oldest := result.Items[1]
+	assert.Equal(t, "req-model-a", oldest.RequestId)
+	assert.Empty(t, oldest.RequestContent)
+	assert.False(t, oldest.ContentCaptured)
+}
+
+func TestListClientAgentLogsReadsRequestPath(t *testing.T) {
+	truncateTables(t)
+
+	require.NoError(t, LOG_DB.Create(&Log{
+		UserId:    1,
+		CreatedAt: 1000,
+		Type:      LogTypeConsume,
+		ModelName: "gpt-4o",
+		Other:     common.MapToJsonStr(map[string]any{"request_path": "/v1/chat/completions"}),
+	}).Error)
+
+	result, err := ListClientAgentLogs(ClientAgentLogQuery{Unknown: true})
+	require.NoError(t, err)
+	require.Len(t, result.Items, 1)
+	assert.Equal(t, "/v1/chat/completions", result.Items[0].RequestPath)
 }

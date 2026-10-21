@@ -1,6 +1,24 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
-import { ArrowLeft, BarChart3, Copy, RefreshCw } from 'lucide-react'
+import { getRouteApi, Link } from '@tanstack/react-router'
+import { ArrowLeft, BarChart3, Copy, FileText, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -8,6 +26,7 @@ import { Dialog } from '@/components/dialog'
 import { ErrorState } from '@/components/error-state'
 import { LoadingState } from '@/components/loading-state'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { TitledCard } from '@/components/ui/titled-card'
 import {
@@ -18,14 +37,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
+import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getLogTypeConfig } from '../../lib'
 import { buildApiParams } from '../../lib/utils'
-import { getClientAgentUsage, getClientAgentUsageLogs } from '../api'
-import type { ClientAgentLogItem, ClientAgentUsageRow } from '../types'
+import { LOG_TYPE_ENUM } from '../../constants'
+import { getClientAgentUsage, getClientAgentUsageLogs } from '../../api'
+import type { ClientAgentLogItem, ClientAgentUsageRow } from '../../types'
+import { ClientUsageTrendDialog } from './client-usage-trend-dialog'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -142,80 +166,194 @@ function ClientUsageTable(props: {
   )
 }
 
-function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
+function ContentPreview(props: { value?: string; emptyLabel: string }) {
+  if (!props.value) {
+    return (
+      <span className='text-muted-foreground text-xs'>{props.emptyLabel}</span>
+    )
+  }
+  return (
+    <span className='block max-w-[220px] truncate text-xs' title={props.value}>
+      {props.value}
+    </span>
+  )
+}
+
+function ClientLogContentDialog(props: {
+  item: ClientAgentLogItem | null
+  onOpenChange: (open: boolean) => void
+}) {
   const { t } = useTranslation()
+  const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const item = props.item
+
+  const sections = [
+    { key: 'request', label: t('Input content'), value: item?.request_content },
+    { key: 'response', label: t('Output content'), value: item?.response_content },
+  ]
+  // Error logs carry the failure reason in content; consume logs only hold
+  // billing text, which belongs in the log list rather than this dialog.
+  if (item && item.type === LOG_TYPE_ENUM.ERROR && item.content) {
+    sections.push({ key: 'log', label: t('Details'), value: item.content })
+  }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>{t('Time')}</TableHead>
-          <TableHead>{t('Type')}</TableHead>
-          <TableHead>{t('Model')}</TableHead>
-          <TableHead className='text-right'>{t('Tokens')}</TableHead>
-          <TableHead className='text-right'>{t('Quota')}</TableHead>
-          <TableHead>{t('Request Path')}</TableHead>
-          <TableHead>{t('Content')}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {props.items.map((item) => {
-          const config = getLogTypeConfig(item.type)
-          const other = parseLogOther(item.content)
-          const requestPath = other?.request_path || ''
-          return (
-            <TableRow key={item.id}>
-              <TableCell className='font-mono text-xs tabular-nums'>
-                {formatTimestampToDate(item.created_at)}
-              </TableCell>
-              <TableCell>
-                <StatusBadge
-                  label={t(config.label)}
-                  variant={config.color as StatusBadgeProps['variant']}
-                  copyable={false}
-                />
-              </TableCell>
-              <TableCell className='max-w-[160px] truncate text-xs'>
-                {item.model_name || '-'}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatNumber(item.prompt_tokens + item.completion_tokens)}
-              </TableCell>
-              <TableCell className='text-right font-mono text-xs tabular-nums'>
-                {formatLogQuota(item.quota)}
-              </TableCell>
-              <TableCell className='max-w-[200px] truncate text-xs font-mono'>
-                {requestPath || '-'}
-              </TableCell>
-              <TableCell className='max-w-[260px]'>
-                <div className='relative group'>
-                  <span
-                    className='block truncate text-xs'
-                    title={item.content || '-'}
+    <Dialog
+      open={item !== null}
+      onOpenChange={props.onOpenChange}
+      title={t('Content details')}
+      description={
+        item
+          ? `${formatTimestampToDate(item.created_at)} · ${item.model_name || '-'}`
+          : undefined
+      }
+      contentClassName='sm:max-w-3xl'
+      contentHeight='min(70dvh, 560px)'
+      bodyClassName='space-y-4'
+    >
+      {item && !item.content_captured ? (
+        <p className='text-muted-foreground text-sm'>
+          {t(
+            'No captured content for this request. Enable content logging under Prompt Security to record future requests.'
+          )}
+        </p>
+      ) : null}
+      {sections.map((section) => (
+        <div key={section.key} className='space-y-2'>
+          <div className='flex items-center justify-between gap-2'>
+            <span className='text-sm font-medium'>{section.label}</span>
+            {section.value ? (
+              <Button
+                variant='ghost'
+                size='sm'
+                onClick={() => void copyToClipboard(section.value ?? '')}
+                aria-label={t('Copy content')}
+              >
+                <Copy className='size-3.5' aria-hidden='true' />
+                {copiedText === section.value ? t('Copied') : t('Copy')}
+              </Button>
+            ) : null}
+          </div>
+          <div className='bg-muted/50 max-h-64 overflow-auto rounded-md border p-3'>
+            <pre className='text-xs leading-relaxed break-words whitespace-pre-wrap'>
+              {section.value || t('No data')}
+            </pre>
+          </div>
+        </div>
+      ))}
+    </Dialog>
+  )
+}
+
+function CaptureDisabledNotice() {
+  const { t } = useTranslation()
+  const isRoot = useAuthStore(
+    (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
+  )
+
+  return (
+    <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40'>
+      <AlertTitle>{t('Content capture is disabled')}</AlertTitle>
+      <AlertDescription>
+        {t(
+          'Request and response text is only recorded while content logging is enabled, and entries expire after the configured retention window.'
+        )}
+        {isRoot ? (
+          <Link
+            className='text-primary ml-1 underline underline-offset-4'
+            to='/system-settings/security/$section'
+            params={{ section: 'prompt-security' }}
+          >
+            {t('Open settings')}
+          </Link>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  )
+}
+
+function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
+  const { t } = useTranslation()
+  const [selected, setSelected] = useState<ClientAgentLogItem | null>(null)
+
+  return (
+    <>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t('Time')}</TableHead>
+            <TableHead>{t('Type')}</TableHead>
+            <TableHead>{t('Model')}</TableHead>
+            <TableHead className='text-right'>{t('Tokens')}</TableHead>
+            <TableHead className='text-right'>{t('Quota')}</TableHead>
+            <TableHead>{t('Request Path')}</TableHead>
+            <TableHead>{t('Input')}</TableHead>
+            <TableHead>{t('Output')}</TableHead>
+            <TableHead className='text-right'>{t('Details')}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {props.items.map((item) => {
+            const config = getLogTypeConfig(item.type)
+            return (
+              <TableRow key={item.id}>
+                <TableCell className='font-mono text-xs tabular-nums'>
+                  {formatTimestampToDate(item.created_at)}
+                </TableCell>
+                <TableCell>
+                  <StatusBadge
+                    label={t(config.label)}
+                    variant={config.color as StatusBadgeProps['variant']}
+                    copyable={false}
+                  />
+                </TableCell>
+                <TableCell className='max-w-[160px] truncate text-xs'>
+                  {item.model_name || '-'}
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatNumber(item.prompt_tokens + item.completion_tokens)}
+                </TableCell>
+                <TableCell className='text-right font-mono text-xs tabular-nums'>
+                  {formatLogQuota(item.quota)}
+                </TableCell>
+                <TableCell className='max-w-[160px] truncate text-xs font-mono'>
+                  {item.request_path || '-'}
+                </TableCell>
+                <TableCell>
+                  <ContentPreview
+                    value={item.request_content}
+                    emptyLabel={t('Not captured')}
+                  />
+                </TableCell>
+                <TableCell>
+                  <ContentPreview
+                    value={item.response_content}
+                    emptyLabel={t('Not captured')}
+                  />
+                </TableCell>
+                <TableCell className='text-right'>
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={() => setSelected(item)}
+                    aria-label={t('View content')}
                   >
-                    {item.content || '-'}
-                  </span>
-                  {item.content && (
-                    <Button
-                      variant='ghost'
-                      size='icon'
-                      className='absolute right-0 top-0 opacity-0 group-hover:opacity-100 transition-opacity'
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        navigator.clipboard.writeText(item.content)
-                      }}
-                      aria-label={t('Copy content')}
-                    >
-                      <Copy className='size-3' />
-                    </Button>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
+                    <FileText className='size-3.5' aria-hidden='true' />
+                    {t('View')}
+                  </Button>
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+      <ClientLogContentDialog
+        item={selected}
+        onOpenChange={(open) => {
+          if (!open) setSelected(null)
+        }}
+      />
+    </>
   )
 }
 
@@ -226,6 +364,7 @@ function ClientDetail(props: {
   const { t } = useTranslation()
   const searchParams = route.useSearch()
   const [page, setPage] = useState(1)
+  const [trendOpen, setTrendOpen] = useState(false)
   const pageSize = 20
   const query = useQuery({
     queryKey: [
@@ -278,18 +417,28 @@ function ClientDetail(props: {
             {props.selection.rawUserAgent || props.selection.clientAgent}
           </span>
         </div>
-        <Button
-          variant='outline'
-          size='sm'
-          onClick={() => void query.refetch()}
-          disabled={query.isFetching}
-        >
-          <RefreshCw
-            className={cn('size-3.5', query.isFetching && 'animate-spin')}
-            aria-hidden='true'
-          />
-          {t('Refresh')}
-        </Button>
+        <div className='flex items-center gap-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => setTrendOpen(true)}
+          >
+            <BarChart3 className='size-3.5' aria-hidden='true' />
+            {t('Trend')}
+          </Button>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={() => void query.refetch()}
+            disabled={query.isFetching}
+          >
+            <RefreshCw
+              className={cn('size-3.5', query.isFetching && 'animate-spin')}
+              aria-hidden='true'
+            />
+            {t('Refresh')}
+          </Button>
+        </div>
       </div>
 
       {query.isPending ? (
@@ -301,6 +450,9 @@ function ClientDetail(props: {
         />
       ) : (
         <>
+          {data?.content_capture_enabled === false ? (
+            <CaptureDisabledNotice />
+          ) : null}
           <ClientLogsTable items={data?.items ?? []} />
           <div className='flex items-center justify-end gap-2'>
             <Button
@@ -325,6 +477,13 @@ function ClientDetail(props: {
           </div>
         </>
       )}
+      <ClientUsageTrendDialog
+        open={trendOpen}
+        onOpenChange={setTrendOpen}
+        clientAgent={props.selection.clientAgent || undefined}
+        rawUserAgent={props.selection.rawUserAgent}
+        unknown={props.selection.unknown}
+      />
     </div>
   )
 }

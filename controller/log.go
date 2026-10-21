@@ -278,6 +278,9 @@ func GetLogsClientUsageLogs(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// Captured request/response text only exists while this option is on; the
+	// UI uses the flag to explain empty content columns instead of guessing.
+	result.ContentCaptureEnabled = service.SecureContentLogEnabled()
 	common.ApiSuccess(c, result)
 }
 
@@ -305,7 +308,7 @@ func GetLogsClientUsageTrend(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, result)
+	common.ApiSuccess(c, gin.H{"points": result})
 }
 
 func GetLogsSelfStat(c *gin.Context) {
