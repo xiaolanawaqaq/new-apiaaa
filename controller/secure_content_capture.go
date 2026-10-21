@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -34,6 +35,17 @@ func (w *secureContentWriter) Write(b []byte) (int, error) {
 
 func (w *secureContentWriter) WriteString(s string) (int, error) {
 	return w.Write([]byte(s))
+}
+
+// Unwrap lets http.ResponseController reach the underlying writer so the
+// streaming write deadline still applies through this wrapper.
+func (w *secureContentWriter) Unwrap() http.ResponseWriter {
+	if unwrapper, ok := w.ResponseWriter.(interface {
+		Unwrap() http.ResponseWriter
+	}); ok {
+		return unwrapper.Unwrap()
+	}
+	return w.ResponseWriter
 }
 
 // secureContentCapture 保存一次 relay 请求的捕获状态：包装后的响应写入器、

@@ -35,6 +35,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQuery } from '@tanstack/react-query'
 import {
   Copy,
   Check,
@@ -64,10 +65,14 @@ import { PolicyDecisionRecord } from '@/features/system-settings/request-policie
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import { formatLogQuota, formatTokens, formatUseTime } from '@/lib/format'
-import { translateServerText } from '@/lib/server-error-message'
+import {
+  requireServerSuccess,
+  translateServerText,
+} from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
 import { AuditDetailFields } from '../../audit/components/audit-detail-fields'
+import { getLogContent } from '../../api'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
@@ -477,6 +482,66 @@ interface DetailsDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+// useLogContentQuery fetches the captured request/response text for one log
+// entry. Capture is opt-in and short-lived, so an empty result is normal.
+function useLogContentQuery(requestId: string | undefined) {
+  return useQuery({
+    queryKey: ['usage-logs-content', requestId],
+    queryFn: async () => {
+      const response = await requireServerSuccess(
+        await getLogContent(requestId ?? '')
+      )
+      const items = response.data?.items ?? []
+      return {
+        request: items.find((item) => item.direction === 'request')?.content,
+        response: items.find((item) => item.direction === 'response')?.content,
+      }
+    },
+    enabled: !!requestId,
+    retry: false,
+    staleTime: 60_000,
+    meta: { errorToast: false },
+  })
+}
+
+function CapturedContentBlock(props: {
+  label: string
+  value?: string
+  copiedText: string | null
+  onCopy: (value: string) => Promise<boolean>
+}) {
+  const { t } = useTranslation()
+  if (!props.value) {
+    return null
+  }
+  return (
+    <div className='min-w-0 space-y-1'>
+      <div className='flex items-center justify-between gap-2'>
+        <span className='text-muted-foreground text-xs font-medium'>
+          {props.label}
+        </span>
+        <Button
+          variant='ghost'
+          size='sm'
+          className='h-5 shrink-0 px-1.5'
+          onClick={() => void props.onCopy(props.value ?? '')}
+          title={t('Copy to clipboard')}
+          aria-label={t('Copy to clipboard')}
+        >
+          {props.copiedText === props.value ? (
+            <Check className='size-3 text-green-600' />
+          ) : (
+            <Copy className='size-3' />
+          )}
+        </Button>
+      </div>
+      <pre className='max-h-40 overflow-auto rounded border bg-background/60 p-2 text-xs leading-relaxed break-words whitespace-pre-wrap'>
+        {props.value}
+      </pre>
+    </div>
+  )
+}
+
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
@@ -626,6 +691,11 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const reasoningEffortVariant = getReasoningEffortVariant(
     other?.reasoning_effort
   )
+  const contentQuery = useLogContentQuery(
+    props.open && props.isAdmin ? props.log.request_id : undefined
+  )
+  const capturedRequest = contentQuery.data?.request
+  const capturedResponse = contentQuery.data?.response
 
   return (
     <Dialog
@@ -770,6 +840,27 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
         </div>
+
+        {/* Captured request/response text (admin only) */}
+        {props.isAdmin && (capturedRequest || capturedResponse) && (
+          <DetailSection
+            icon={<Info className='size-3.5' aria-hidden='true' />}
+            label={t('Captured content')}
+          >
+            <CapturedContentBlock
+              label={t('Input content')}
+              value={capturedRequest}
+              copiedText={copiedText}
+              onCopy={copyToClipboard}
+            />
+            <CapturedContentBlock
+              label={t('Output content')}
+              value={capturedResponse}
+              copiedText={copiedText}
+              onCopy={copyToClipboard}
+            />
+          </DetailSection>
+        )}
 
         {/* Request conversion (admin only, not for refund) */}
         {showConversion && (

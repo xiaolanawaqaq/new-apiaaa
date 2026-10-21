@@ -516,6 +516,31 @@ export interface ClientAgentUsageTrendResponse {
   }
 }
 
+export interface PromptContentLogItem {
+  id: number
+  created_at: number
+  expires_at: number
+  user_id: number
+  username: string
+  token_id: number
+  channel_id: number
+  request_id: string
+  model_name: string
+  direction: 'request' | 'response'
+  content: string
+}
+
+export interface LogContentResponse {
+  success: boolean
+  message?: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: PromptContentLogItem[]
+  }
+}
+
 export interface GetLogsResponse {
   success: boolean
   message?: string

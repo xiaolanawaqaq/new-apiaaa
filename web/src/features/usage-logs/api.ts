@@ -32,6 +32,7 @@ import type {
   GetLogStatsResponse,
   GetMidjourneyLogsParams,
   GetTaskLogsParams,
+  LogContentResponse,
   TaskArtifactsResponse,
   UserInfo,
 } from './types'
@@ -123,6 +124,18 @@ export async function getClientAgentUsageTrend(
     params as unknown as Record<string, unknown>
   )
   const res = await api.get(`/api/log/client_usage/trend?${queryParams}`)
+  return res.data
+}
+
+// Captured request/response text for one log entry, keyed by request_id.
+export async function getLogContent(
+  requestId: string
+): Promise<LogContentResponse> {
+  const queryParams = buildQueryParams({
+    request_id: requestId,
+    page_size: 20,
+  })
+  const res = await api.get(`/api/prompt-security/content?${queryParams}`)
   return res.data
 }
 

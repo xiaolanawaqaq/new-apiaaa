@@ -187,8 +187,8 @@ func InitOptionMap() {
 	common.OptionMap["StopOnSensitiveEnabled"] = strconv.FormatBool(setting.StopOnSensitiveEnabled)
 	common.OptionMap["SensitiveWords"] = setting.SensitiveWordsToString()
 	common.OptionMap["PromptBlacklist"] = "[]"
-	common.OptionMap["SecureContentLogEnabled"] = "false"
-	common.OptionMap["SecureContentLogRetentionHours"] = "24"
+	common.OptionMap["SecureContentLogEnabled"] = "true"
+	common.OptionMap["SecureContentLogRetentionHours"] = "72"
 	common.OptionMap["SecureContentLogMaxBytes"] = strconv.Itoa(MaxPromptContentLogBytes)
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
