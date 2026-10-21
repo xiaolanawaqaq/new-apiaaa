@@ -302,75 +302,77 @@ function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
 
   return (
     <>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('Time')}</TableHead>
-            <TableHead>{t('Type')}</TableHead>
-            <TableHead>{t('Model')}</TableHead>
-            <TableHead className='text-right'>{t('Tokens')}</TableHead>
-            <TableHead className='text-right'>{t('Quota')}</TableHead>
-            <TableHead>{t('Request Path')}</TableHead>
-            <TableHead>{t('Input')}</TableHead>
-            <TableHead>{t('Output')}</TableHead>
-            <TableHead className='text-right'>{t('Details')}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {props.items.map((item) => {
-            const config = getLogTypeConfig(item.type)
-            return (
-              <TableRow key={item.id}>
-                <TableCell className='font-mono text-xs tabular-nums'>
-                  {formatTimestampToDate(item.created_at)}
-                </TableCell>
-                <TableCell>
-                  <StatusBadge
-                    label={t(config.label)}
-                    variant={config.color as StatusBadgeProps['variant']}
-                    copyable={false}
-                  />
-                </TableCell>
-                <TableCell className='max-w-[160px] truncate text-xs'>
-                  {item.model_name || '-'}
-                </TableCell>
-                <TableCell className='text-right font-mono text-xs tabular-nums'>
-                  {formatNumber(item.prompt_tokens + item.completion_tokens)}
-                </TableCell>
-                <TableCell className='text-right font-mono text-xs tabular-nums'>
-                  {formatLogQuota(item.quota)}
-                </TableCell>
-                <TableCell className='max-w-[160px] truncate text-xs font-mono'>
-                  {item.request_path || '-'}
-                </TableCell>
-                <TableCell>
-                  <ContentPreview
-                    value={item.request_content}
-                    emptyLabel={t('Not captured')}
-                  />
-                </TableCell>
-                <TableCell>
-                  <ContentPreview
-                    value={item.response_content}
-                    emptyLabel={t('Not captured')}
-                  />
-                </TableCell>
-                <TableCell className='text-right'>
-                  <Button
-                    variant='ghost'
-                    size='sm'
-                    onClick={() => setSelected(item)}
-                    aria-label={t('View content')}
-                  >
-                    <FileText className='size-3.5' aria-hidden='true' />
-                    {t('View')}
-                  </Button>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
+      <div className='overflow-x-auto'>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('Time')}</TableHead>
+              <TableHead>{t('Type')}</TableHead>
+              <TableHead>{t('Model')}</TableHead>
+              <TableHead className='text-right'>{t('Tokens')}</TableHead>
+              <TableHead className='text-right'>{t('Quota')}</TableHead>
+              <TableHead>{t('Request Path')}</TableHead>
+              <TableHead>{t('Input')}</TableHead>
+              <TableHead>{t('Output')}</TableHead>
+              <TableHead className='text-right'>{t('Details')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {props.items.map((item) => {
+              const config = getLogTypeConfig(item.type)
+              return (
+                <TableRow key={item.id}>
+                  <TableCell className='font-mono text-xs tabular-nums'>
+                    {formatTimestampToDate(item.created_at)}
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge
+                      label={t(config.label)}
+                      variant={config.color as StatusBadgeProps['variant']}
+                      copyable={false}
+                    />
+                  </TableCell>
+                  <TableCell className='max-w-[160px] truncate text-xs'>
+                    {item.model_name || '-'}
+                  </TableCell>
+                  <TableCell className='text-right font-mono text-xs tabular-nums'>
+                    {formatNumber(item.prompt_tokens + item.completion_tokens)}
+                  </TableCell>
+                  <TableCell className='text-right font-mono text-xs tabular-nums'>
+                    {formatLogQuota(item.quota)}
+                  </TableCell>
+                  <TableCell className='max-w-[160px] truncate text-xs font-mono'>
+                    {item.request_path || '-'}
+                  </TableCell>
+                  <TableCell>
+                    <ContentPreview
+                      value={item.request_content}
+                      emptyLabel={t('Not captured')}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <ContentPreview
+                      value={item.response_content}
+                      emptyLabel={t('Not captured')}
+                    />
+                  </TableCell>
+                  <TableCell className='text-right'>
+                    <Button
+                      variant='ghost'
+                      size='sm'
+                      onClick={() => setSelected(item)}
+                      aria-label={t('View content')}
+                    >
+                      <FileText className='size-3.5' aria-hidden='true' />
+                      {t('View')}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      </div>
       <ClientLogContentDialog
         item={selected}
         onOpenChange={(open) => {
@@ -536,7 +538,7 @@ export function ClientUsageDialog(props: {
         </span>
       }
       description={t('Aggregated from the most recent logs only.')}
-      contentClassName='sm:max-w-3xl'
+      contentClassName='sm:max-w-5xl'
       contentHeight='min(70dvh, 640px)'
     >
       {selection ? (
