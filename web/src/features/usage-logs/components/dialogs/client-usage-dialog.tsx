@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, Link } from '@tanstack/react-router'
 import { ArrowLeft, BarChart3, Copy, FileText, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
@@ -37,6 +37,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
 import { ROLE } from '@/lib/roles'
@@ -44,10 +45,10 @@ import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { getClientAgentUsage, getClientAgentUsageLogs } from '../../api'
+import { LOG_TYPE_ENUM } from '../../constants'
 import { getLogTypeConfig } from '../../lib'
 import { buildApiParams } from '../../lib/utils'
-import { LOG_TYPE_ENUM } from '../../constants'
-import { getClientAgentUsage, getClientAgentUsageLogs } from '../../api'
 import type { ClientAgentLogItem, ClientAgentUsageRow } from '../../types'
 import { ClientUsageTrendDialog } from './client-usage-trend-dialog'
 
@@ -247,9 +248,21 @@ function ClientLogContentDialog(props: {
 
 function CaptureDisabledNotice() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const updateOption = useUpdateOption()
   const isRoot = useAuthStore(
     (state) => state.auth.user?.role === ROLE.SUPER_ADMIN
   )
+
+  const handleEnable = async () => {
+    await updateOption.mutateAsync({
+      key: 'SecureContentLogEnabled',
+      value: true,
+    })
+    await queryClient.invalidateQueries({
+      queryKey: ['usage-logs-client-detail'],
+    })
+  }
 
   return (
     <Alert className='border-amber-200 bg-amber-50 dark:border-amber-900/60 dark:bg-amber-950/40'>
@@ -259,13 +272,24 @@ function CaptureDisabledNotice() {
           'Request and response text is only recorded while content logging is enabled, and entries expire after the configured retention window.'
         )}
         {isRoot ? (
-          <Link
-            className='text-primary ml-1 underline underline-offset-4'
-            to='/system-settings/security/$section'
-            params={{ section: 'prompt-security' }}
-          >
-            {t('Open settings')}
-          </Link>
+          <>
+            <Button
+              variant='link'
+              size='sm'
+              className='ml-1 h-auto p-0 align-baseline'
+              onClick={() => void handleEnable()}
+              disabled={updateOption.isPending}
+            >
+              {t('Enable content logging')}
+            </Button>
+            <Link
+              className='text-primary ml-3 underline underline-offset-4'
+              to='/system-settings/security/$section'
+              params={{ section: 'prompt-security' }}
+            >
+              {t('Open settings')}
+            </Link>
+          </>
         ) : null}
       </AlertDescription>
     </Alert>
