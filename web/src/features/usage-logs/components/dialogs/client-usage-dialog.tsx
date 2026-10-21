@@ -425,7 +425,7 @@ function ClientDetail(props: {
     placeholderData: (previousData) => previousData,
   })
 
-  const data = query.data.data
+  const data = query.data?.data
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
