@@ -36,6 +36,7 @@ func GetPromptSecurityOptions(c *gin.Context) {
 	enabled := common.OptionMap[service.SecureContentLogEnabledOptionKey]
 	retention := common.OptionMap[service.SecureContentLogRetentionOptionKey]
 	maxBytes := common.OptionMap[service.SecureContentLogMaxBytesOptionKey]
+	rawMode := common.OptionMap[service.SecureContentLogRawModeOptionKey]
 	common.OptionMapRWMutex.RUnlock()
 	if enabled == "" {
 		enabled = "false"
@@ -46,6 +47,9 @@ func GetPromptSecurityOptions(c *gin.Context) {
 	if maxBytes == "" {
 		maxBytes = strconv.Itoa(model.MaxPromptContentLogBytes)
 	}
+	if rawMode == "" {
+		rawMode = "false"
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
@@ -54,6 +58,7 @@ func GetPromptSecurityOptions(c *gin.Context) {
 			{Key: service.SecureContentLogEnabledOptionKey, Value: enabled},
 			{Key: service.SecureContentLogRetentionOptionKey, Value: retention},
 			{Key: service.SecureContentLogMaxBytesOptionKey, Value: maxBytes},
+			{Key: service.SecureContentLogRawModeOptionKey, Value: rawMode},
 		},
 	})
 }
@@ -120,10 +125,19 @@ func UpdatePromptSecurityOption(c *gin.Context) {
 	case service.SecureContentLogMaxBytesOptionKey:
 		maxBytes, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || maxBytes <= 0 || maxBytes > model.MaxSecureContentLogBytesLimit {
-			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "SecureContentLogMaxBytes 必须是 1 到 65536 之间的整数"})
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "SecureContentLogMaxBytes 必须是 1 到 2097152 之间的整数"})
 			return
 		}
 		if err := model.UpdateOption(request.Key, strconv.Itoa(maxBytes)); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+	case service.SecureContentLogRawModeOptionKey:
+		if !strings.EqualFold(value, "true") && !strings.EqualFold(value, "false") {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "SecureContentLogRawMode 必须是布尔值"})
+			return
+		}
+		if err := model.UpdateOption(request.Key, strings.ToLower(value)); err != nil {
 			common.ApiError(c, err)
 			return
 		}
@@ -177,4 +191,56 @@ func CleanupPromptContentLogs(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"deleted": removed}})
+}
+
+// ExportPromptContentPairs streams raw-mode request/response pairs as NDJSON.
+// Each line is one complete pair, which is the shape training-data pipelines
+// expect; the trailing line is the usual API result object.
+func ExportPromptContentPairs(c *gin.Context) {
+	if !requirePromptSecurityAdmin(c) {
+		return
+	}
+	startAt, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endAt, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	userID, _ := strconv.Atoi(c.Query("user_id"))
+	tokenID, _ := strconv.Atoi(c.Query("token_id"))
+	channelID, _ := strconv.Atoi(c.Query("channel_id"))
+	modelName := c.Query("model_name")
+
+	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Accel-Buffering", "no")
+	c.Status(http.StatusOK)
+
+	count := 0
+	writePair := func(pair model.PromptContentPair) error {
+		line, err := common.Marshal(pair)
+		if err != nil {
+			return err
+		}
+		if _, err := c.Writer.Write(append(line, '\n')); err != nil {
+			return err
+		}
+		count++
+		return nil
+	}
+	ctx := c.Request.Context()
+	err := model.StreamRawPromptContentPairs(ctx, model.PromptContentLogFilter{
+		UserID:    userID,
+		TokenID:   tokenID,
+		ChannelID: channelID,
+		ModelName: modelName,
+		StartAt:   startAt,
+		EndAt:     endAt,
+		RawOnly:   true,
+	}, writePair)
+	if ctx.Err() != nil {
+		return
+	}
+	if err != nil {
+		common.SysError(common.LogText("failed to export prompt content: %s", err.Error()))
+		common.ApiErrorT(c, "Failed to export content")
+		return
+	}
+	common.ApiSuccess(c, gin.H{"count": count})
 }

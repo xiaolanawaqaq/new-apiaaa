@@ -24,7 +24,8 @@ const (
 	PromptBlacklistOptionKey           = "PromptBlacklist"
 	SecureContentLogEnabledOptionKey   = "SecureContentLogEnabled"
 	SecureContentLogRetentionOptionKey = "SecureContentLogRetentionHours"
-	SecureContentLogMaxBytesOptionKey = "SecureContentLogMaxBytes"
+	SecureContentLogMaxBytesOptionKey  = "SecureContentLogMaxBytes"
+	SecureContentLogRawModeOptionKey   = "SecureContentLogRawMode"
 	DefaultSecureContentLogRetention   = 24 * time.Hour
 	MaxSecureContentLogBytes           = model.MaxPromptContentLogBytes
 )
@@ -384,16 +385,30 @@ func SecureContentLogEnabled() bool {
 	return strings.EqualFold(strings.TrimSpace(raw), "true")
 }
 
+// SecureContentLogRawMode reports whether captured content is stored verbatim
+// (raw request/response bodies) instead of redacted summaries. Raw rows are
+// meant for training-data export, so they skip redaction and keep JSON intact.
+func SecureContentLogRawMode() bool {
+	common.OptionMapRWMutex.RLock()
+	raw := common.OptionMap[SecureContentLogRawModeOptionKey]
+	common.OptionMapRWMutex.RUnlock()
+	if raw == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(raw), "true")
+}
+
 type SecureContentLogParams struct {
-	UserID    int
-	Username  string
-	TokenID   int
-	ChannelID int
-	RequestID string
-	ModelName string
-	Direction string
-	Content   string
-	Now       time.Time
+	UserID      int
+	Username    string
+	TokenID     int
+	ChannelID   int
+	RequestID   string
+	ModelName   string
+	RequestPath string
+	Direction   string
+	Content     string
+	Now         time.Time
 }
 
 func RecordSecureContentLog(params SecureContentLogParams) error {
@@ -406,18 +421,25 @@ func RecordSecureContentLog(params SecureContentLogParams) error {
 	if params.Now.IsZero() {
 		params.Now = time.Now()
 	}
+	rawMode := SecureContentLogRawMode()
+	content := params.Content
+	if !rawMode {
+		content = RedactSecureContent(content)
+	}
 	created := params.Now.Unix()
 	entry := &model.PromptContentLog{
-		CreatedAt: created,
-		ExpiresAt: params.Now.Add(SecureContentLogRetention()).Unix(),
-		UserID:    params.UserID,
-		Username:  params.Username,
-		TokenID:   params.TokenID,
-		ChannelID: params.ChannelID,
-		RequestID: params.RequestID,
-		ModelName: params.ModelName,
-		Direction: params.Direction,
-		Content:   RedactSecureContent(params.Content),
+		CreatedAt:   created,
+		ExpiresAt:   params.Now.Add(SecureContentLogRetention()).Unix(),
+		UserID:      params.UserID,
+		Username:    params.Username,
+		TokenID:     params.TokenID,
+		ChannelID:   params.ChannelID,
+		RequestID:   params.RequestID,
+		ModelName:   params.ModelName,
+		RequestPath: params.RequestPath,
+		Direction:   params.Direction,
+		Raw:         rawMode,
+		Content:     model.LongText(content),
 	}
 	return model.CreatePromptContentLog(entry)
 }

@@ -44,11 +44,12 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 
-const SECURE_CONTENT_LOG_MAX_BYTES_LIMIT = 64 * 1024
+const SECURE_CONTENT_LOG_MAX_BYTES_LIMIT = 2 * 1024 * 1024
 
 const promptSecuritySchema = z.object({
   PromptBlacklist: z.string().optional(),
   SecureContentLogEnabled: z.boolean(),
+  SecureContentLogRawMode: z.boolean(),
   SecureContentLogRetentionHours: z
     .number()
     .int()
@@ -59,7 +60,7 @@ const promptSecuritySchema = z.object({
     .min(1, 'Max bytes must be at least 1')
     .max(
       SECURE_CONTENT_LOG_MAX_BYTES_LIMIT,
-      'Max bytes must not exceed 65536'
+      'Max bytes must not exceed 2097152'
     ),
 })
 
@@ -156,6 +157,31 @@ export function PromptSecuritySection({
 
             <FormField
               control={form.control}
+              name='SecureContentLogRawMode'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>
+                      {t('Store raw request/response bodies')}
+                    </FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Keep the verbatim request and response bodies instead of redacted text. No masking and no flattening, so credentials and personal data are stored as-is. Use only when collecting training data on infrastructure you control.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='SecureContentLogRetentionHours'
               render={({ field }) => (
                 <FormItem>
@@ -195,7 +221,7 @@ export function PromptSecuritySection({
                       min='1'
                       max={String(SECURE_CONTENT_LOG_MAX_BYTES_LIMIT)}
                       step='1'
-                      value={field.value ?? 16384}
+                      value={field.value ?? 262144}
                       onChange={(e) =>
                         field.onChange(
                           Math.max(0, Number.parseInt(e.target.value, 10) || 0)
@@ -205,7 +231,7 @@ export function PromptSecuritySection({
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'Each request and response is capped at this many bytes before redaction and storage. Longer content is truncated; the response stream is never altered. Range 1-65536, default 16384.'
+                      'Each request and response is capped at this many bytes before storage. Longer content is truncated; the response stream is never altered. Range 1-2097152, default 262144.'
                     )}
                   </FormDescription>
                   <FormMessage />

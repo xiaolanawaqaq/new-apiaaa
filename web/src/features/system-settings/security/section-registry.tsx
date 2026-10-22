@@ -86,6 +86,7 @@ const SECURITY_SECTIONS = [
         defaultValues={{
           PromptBlacklist: settings.PromptBlacklist,
           SecureContentLogEnabled: settings.SecureContentLogEnabled,
+          SecureContentLogRawMode: settings.SecureContentLogRawMode,
           SecureContentLogRetentionHours:
             settings.SecureContentLogRetentionHours,
           SecureContentLogMaxBytes: settings.SecureContentLogMaxBytes,

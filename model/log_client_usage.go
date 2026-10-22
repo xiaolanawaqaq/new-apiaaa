@@ -427,11 +427,11 @@ func attachCapturedContent(items []ClientAgentLogItem) {
 		switch entry.Direction {
 		case PromptContentDirectionRequest:
 			if pair.request == "" {
-				pair.request = entry.Content
+				pair.request = string(entry.Content)
 			}
 		case PromptContentDirectionResponse:
 			if pair.response == "" {
-				pair.response = entry.Content
+				pair.response = string(entry.Content)
 			}
 		}
 	}

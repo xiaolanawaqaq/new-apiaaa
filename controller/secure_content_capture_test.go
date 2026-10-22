@@ -105,7 +105,7 @@ func TestFinishSecureContentCaptureRecordsBothDirections(t *testing.T) {
 			assert.Contains(t, entry.Content, "hello api")
 		} else {
 			responses++
-			assert.Equal(t, "hi there", entry.Content)
+			assert.Equal(t, "hi there", string(entry.Content))
 		}
 	}
 	assert.Equal(t, 1, requests)

@@ -44,6 +44,7 @@ const defaultSecuritySettings: SecuritySettings = {
   'token_setting.max_user_tokens': 1000,
   PromptBlacklist: '[]',
   SecureContentLogEnabled: true,
+  SecureContentLogRawMode: false,
   SecureContentLogRetentionHours: 72,
   SecureContentLogMaxBytes: 16384,
 }

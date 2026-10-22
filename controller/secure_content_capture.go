@@ -53,7 +53,19 @@ func (w *secureContentWriter) Unwrap() http.ResponseWriter {
 type secureContentCapture struct {
 	writer      *secureContentWriter
 	requestText string
-	params      service.SecureContentLogParams
+	// rawBody 是原始请求体（JSON），仅在原始模式（训练数据）下采集。
+	rawBody []byte
+	rawMode bool
+	params  service.SecureContentLogParams
+}
+
+// captureBufferSize 返回本次请求需要缓存的最大响应字节数。原始模式要保留
+// 完整响应体，因此使用更高的上限。
+func captureBufferSize(rawMode bool) int {
+	if rawMode {
+		return model.MaxRawContentLogBytes
+	}
+	return model.PromptContentLogMaxBytes()
 }
 
 // beginSecureContentCapture 在 relay 入口包装 c.Writer。仅在安全内容日志开启
@@ -62,19 +74,42 @@ func beginSecureContentCapture(c *gin.Context, relayFormat types.RelayFormat) *s
 	if relayFormat == types.RelayFormatOpenAIRealtime || !service.SecureContentLogEnabled() {
 		return nil
 	}
+	rawMode := service.SecureContentLogRawMode()
 	writer := &secureContentWriter{
 		ResponseWriter: c.Writer,
-		maxSize:        model.PromptContentLogMaxBytes(),
+		maxSize:        captureBufferSize(rawMode),
 	}
 	c.Writer = writer
-	return &secureContentCapture{
-		writer: writer,
+	capture := &secureContentCapture{
+		writer:  writer,
+		rawMode: rawMode,
 		params: service.SecureContentLogParams{
 			UserID:    common.GetContextKeyInt(c, constant.ContextKeyUserId),
 			Username:  common.GetContextKeyString(c, constant.ContextKeyUserName),
 			RequestID: c.GetString(common.RequestIdKey),
 		},
 	}
+	if rawMode {
+		capture.rawBody = readRawRequestBody(c)
+	}
+	return capture
+}
+
+// readRawRequestBody 读取原始请求体。body storage 由中间件提前缓存，读取失败
+// 不影响转发，只是本条日志缺少原始请求体。
+func readRawRequestBody(c *gin.Context) []byte {
+	storage, err := common.GetBodyStorage(c)
+	if err != nil || storage == nil {
+		return nil
+	}
+	body, err := storage.Bytes()
+	if err != nil || len(body) == 0 {
+		return nil
+	}
+	if len(body) > model.MaxRawContentLogBytes {
+		body = body[:model.MaxRawContentLogBytes]
+	}
+	return body
 }
 
 // finishSecureContentCapture 在响应完全写出后记录请求与响应内容。relayInfo
@@ -88,13 +123,30 @@ func finishSecureContentCapture(c *gin.Context, capture *secureContentCapture, r
 		capture.params.ChannelID = relayInfo.ChannelId
 		capture.params.ModelName = relayInfo.OriginModelName
 	}
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		capture.params.RequestPath = c.Request.URL.Path
+	}
+
 	capture.params.Direction = model.PromptContentDirectionRequest
-	capture.params.Content = capture.requestText
+	if capture.rawMode {
+		capture.params.Content = string(capture.rawBody)
+	} else {
+		capture.params.Content = capture.requestText
+	}
+	if strings.TrimSpace(capture.params.Content) == "" {
+		return
+	}
 	if err := service.RecordSecureContentLog(capture.params); err != nil {
 		logger.LogWarn(c, "secure content log request record failed: "+err.Error())
 	}
+
 	capture.params.Direction = model.PromptContentDirectionResponse
-	capture.params.Content = service.ExtractResponseText(string(capture.writer.body))
+	if capture.rawMode {
+		// 原始模式保留完整响应体（流式即原始 SSE 文本），便于后续解析成训练样本。
+		capture.params.Content = string(capture.writer.body)
+	} else {
+		capture.params.Content = service.ExtractResponseText(string(capture.writer.body))
+	}
 	if strings.TrimSpace(capture.params.Content) == "" {
 		return
 	}

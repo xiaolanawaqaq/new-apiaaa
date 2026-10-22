@@ -190,6 +190,7 @@ func InitOptionMap() {
 	common.OptionMap["SecureContentLogEnabled"] = "true"
 	common.OptionMap["SecureContentLogRetentionHours"] = "72"
 	common.OptionMap["SecureContentLogMaxBytes"] = strconv.Itoa(MaxPromptContentLogBytes)
+	common.OptionMap["SecureContentLogRawMode"] = "false"
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
@@ -276,6 +277,11 @@ func validateOptionValue(key string, value string) error {
 		maxBytes, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || maxBytes <= 0 || maxBytes > MaxSecureContentLogBytesLimit {
 			return fmt.Errorf("SecureContentLogMaxBytes must be an integer between 1 and %d", MaxSecureContentLogBytesLimit)
+		}
+	}
+	if key == "SecureContentLogRawMode" {
+		if _, err := strconv.ParseBool(strings.TrimSpace(value)); err != nil {
+			return fmt.Errorf("SecureContentLogRawMode must be a boolean")
 		}
 	}
 	if key == "ChannelFailureThreshold" {

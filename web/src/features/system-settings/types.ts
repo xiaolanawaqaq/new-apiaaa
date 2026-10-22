@@ -412,6 +412,7 @@ export type SecuritySettings = {
   'token_setting.max_user_tokens': number
   PromptBlacklist: string
   SecureContentLogEnabled: boolean
+  SecureContentLogRawMode: boolean
   SecureContentLogRetentionHours: number
   SecureContentLogMaxBytes: number
 }
