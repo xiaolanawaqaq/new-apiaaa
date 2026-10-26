@@ -46,7 +46,7 @@ const defaultSecuritySettings: SecuritySettings = {
   SecureContentLogEnabled: true,
   SecureContentLogRawMode: false,
   SecureContentLogRetentionHours: 72,
-  SecureContentLogMaxBytes: 16384,
+  SecureContentLogMaxBytes: 262144,
 }
 
 export function SecuritySettings() {
