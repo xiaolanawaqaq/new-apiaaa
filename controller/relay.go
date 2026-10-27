@@ -106,6 +106,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			logger.LogError(c, common.LogText("relay error: %s", common.LocalLogPreview(newAPIError.Error())))
 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
 			upstreamURLs := common.UpstreamAddresses(c)
+			if relayFormat != types.RelayFormatOpenAIRealtime && c.Writer.Written() &&
+				strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+				writeRelayStreamError(c, relayFormat, newAPIError)
+				return
+			}
+			if relayFormat != types.RelayFormatOpenAIRealtime {
+				c.Header("Content-Type", "application/json; charset=utf-8")
+			}
 			switch relayFormat {
 			case types.RelayFormatOpenAIRealtime:
 				helper.WssError(c, ws, newAPIError.ToOpenAIError(upstreamURLs...))
@@ -221,6 +229,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 	}()
 
+	// 上游 rc.46 新增：Claude 流式请求在准备与重试期间持续发送心跳，防止客户端超时断开。
+	// 计费仍走本分支的多周期配额 + 预扣费流程，不引入上游的 PrepareRequestBilling。
+	generalSettings := operation_setting.GetGeneralSetting()
+	if relayFormat == types.RelayFormatClaude && relayInfo.IsStream && generalSettings.PingIntervalEnabled {
+		stopKeepAlive := helper.StartStreamKeepAlive(c, time.Duration(generalSettings.PingIntervalSeconds)*time.Second)
+		defer stopKeepAlive()
+	}
+
 	defer func() {
 		// Only return quota if downstream failed and quota was actually pre-consumed
 		if newAPIError != nil {
@@ -306,6 +322,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		retryLogStr := common.LogText("retry: %s", strings.Trim(strings.Join(strings.Fields(fmt.Sprint(useChannel)), "->"), "[]"))
 		logger.LogInfo(c, retryLogStr)
 	}
+}
+
+func writeRelayStreamError(c *gin.Context, format types.RelayFormat, apiError *types.NewAPIError) {
+	// 心跳提交响应头后，最终错误继续通过同一个流返回。
+	status, _ := common.GetContextKeyType[*relaycommon.StreamStatus](c, constant.ContextKeyResponseStreamStatus)
+	if status == nil {
+		status = relaycommon.NewStreamStatus()
+		common.SetContextKey(c, constant.ContextKeyResponseStreamStatus, status)
+	}
+	status.MarkFailed(string(apiError.GetErrorCode()), string(apiError.GetErrorType()), apiError.StatusCode)
+	upstreamURLs := common.UpstreamAddresses(c)
+	if format == types.RelayFormatClaude {
+		_ = helper.ClaudeData(c, dto.ClaudeResponse{Type: "error", Error: apiError.ToClaudeError(upstreamURLs...)})
+		return
+	}
+	_ = helper.ObjectData(c, gin.H{"error": apiError.ToOpenAIError(upstreamURLs...)})
+	helper.Done(c)
 }
 
 // CountClaudeTokens implements Anthropic's token-counting utility endpoint.
