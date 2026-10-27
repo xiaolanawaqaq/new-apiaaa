@@ -147,6 +147,15 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		return
 	}
 
+	// 上游 rc.46 新增：Claude 流式请求在准备与重试期间持续发送心跳，防止客户端超时断开。
+	// 必须在所有可能阻塞的步骤（媒体 token 计数、图片下载、上游请求）之前启动。
+	// 计费仍走本分支的多周期配额 + 预扣费流程，不引入上游的 PrepareRequestBilling。
+	generalSettings := operation_setting.GetGeneralSetting()
+	if relayFormat == types.RelayFormatClaude && relayInfo.IsStream && generalSettings.PingIntervalEnabled {
+		stopKeepAlive := helper.StartStreamKeepAlive(c, time.Duration(generalSettings.PingIntervalSeconds)*time.Second)
+		defer stopKeepAlive()
+	}
+
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	needPromptBlacklist := service.PromptBlacklistEnabled()
 	needCountToken := constant.CountToken
@@ -228,14 +237,6 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			panic(recovered)
 		}
 	}()
-
-	// 上游 rc.46 新增：Claude 流式请求在准备与重试期间持续发送心跳，防止客户端超时断开。
-	// 计费仍走本分支的多周期配额 + 预扣费流程，不引入上游的 PrepareRequestBilling。
-	generalSettings := operation_setting.GetGeneralSetting()
-	if relayFormat == types.RelayFormatClaude && relayInfo.IsStream && generalSettings.PingIntervalEnabled {
-		stopKeepAlive := helper.StartStreamKeepAlive(c, time.Duration(generalSettings.PingIntervalSeconds)*time.Second)
-		defer stopKeepAlive()
-	}
 
 	defer func() {
 		// Only return quota if downstream failed and quota was actually pre-consumed
