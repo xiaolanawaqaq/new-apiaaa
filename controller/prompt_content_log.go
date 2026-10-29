@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -206,6 +208,8 @@ func ExportPromptContentPairs(c *gin.Context) {
 	tokenID, _ := strconv.Atoi(c.Query("token_id"))
 	channelID, _ := strconv.Atoi(c.Query("channel_id"))
 	modelName := c.Query("model_name")
+	format := c.Query("format")
+	requireResponse := c.Query("require_response") == "true"
 
 	c.Header("Content-Type", "application/x-ndjson; charset=utf-8")
 	c.Header("Cache-Control", "no-store")
@@ -214,7 +218,20 @@ func ExportPromptContentPairs(c *gin.Context) {
 
 	count := 0
 	writePair := func(pair model.PromptContentPair) error {
-		line, err := common.Marshal(pair)
+		var line []byte
+		var err error
+		if requireResponse && pair.Response == "" {
+			return nil
+		}
+		if format == "openai" {
+			sample, buildErr := buildOpenAITrainingSample(pair)
+			if buildErr != nil {
+				return nil // skip malformed samples
+			}
+			line, err = common.Marshal(sample)
+		} else {
+			line, err = common.Marshal(pair)
+		}
 		if err != nil {
 			return err
 		}
@@ -243,4 +260,225 @@ func ExportPromptContentPairs(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{"count": count})
+}
+
+// buildOpenAITrainingSample converts a raw pair into OpenAI fine-tune format:
+// the original messages plus the assistant's response appended as the final turn.
+func buildOpenAITrainingSample(pair model.PromptContentPair) (map[string]any, error) {
+	messages := normalizeTrainingMessages(pair.Request)
+	if len(messages) == 0 {
+		return nil, errors.New("request body is not a recognized chat format")
+	}
+	responseText := pair.Response
+	if strings.Contains(responseText, "data:") {
+		// 流式响应是 SSE 帧：按顺序拼接 delta.content（无分隔符），还原完整回复。
+		responseText = assembleStreamingResponse(responseText)
+	} else {
+		responseText = extractJSONResponseText(responseText)
+	}
+	if strings.TrimSpace(responseText) == "" {
+		return nil, errors.New("empty response")
+	}
+	messages = append(messages, map[string]any{"role": "assistant", "content": responseText})
+	return map[string]any{"messages": messages}, nil
+}
+
+// extractJSONResponseText pulls the assistant text out of a non-streaming
+// response body. Handles OpenAI, Claude, and Gemini response shapes.
+func extractJSONResponseText(raw string) string {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
+		return raw
+	}
+
+	// OpenAI: choices[].message.content
+	if choicesRaw, ok := root["choices"]; ok {
+		var choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(choicesRaw, &choices) == nil && len(choices) > 0 {
+			return choices[0].Message.Content
+		}
+	}
+
+	// Claude: content[].text
+	if contentRaw, ok := root["content"]; ok {
+		var blocks []struct {
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(contentRaw, &blocks) == nil {
+			var parts []string
+			for _, b := range blocks {
+				if b.Text != "" {
+					parts = append(parts, b.Text)
+				}
+			}
+			if len(parts) > 0 {
+				return strings.Join(parts, "")
+			}
+		}
+	}
+
+	// Gemini: candidates[].content.parts[].text
+	if candsRaw, ok := root["candidates"]; ok {
+		var cands []struct {
+			Content struct {
+				Parts []struct {
+					Text string `json:"text"`
+				} `json:"parts"`
+			} `json:"content"`
+		}
+		if json.Unmarshal(candsRaw, &cands) == nil {
+			for _, cand := range cands {
+				for _, p := range cand.Content.Parts {
+					if p.Text != "" {
+						return p.Text
+					}
+				}
+			}
+		}
+	}
+
+	return raw
+}
+
+// assembleStreamingResponse parses SSE frames and concatenates the content
+// tokens in order (no separator), reconstructing the full assistant reply.
+func assembleStreamingResponse(sseBody string) string {
+	var sb strings.Builder
+	for _, line := range strings.Split(sseBody, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		var decoded map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+			continue
+		}
+		// OpenAI: choices[].delta.content
+		if choicesRaw, ok := decoded["choices"]; ok {
+			var choices []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+			}
+			if json.Unmarshal(choicesRaw, &choices) == nil {
+				for _, c := range choices {
+					sb.WriteString(c.Delta.Content)
+				}
+			}
+		}
+		// Claude: delta.text
+		if deltaRaw, ok := decoded["delta"]; ok {
+			var delta struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(deltaRaw, &delta) == nil {
+				sb.WriteString(delta.Text)
+			}
+		}
+		// Gemini: candidates[].content.parts[].text
+		if candsRaw, ok := decoded["candidates"]; ok {
+			var cands []struct {
+				Content struct {
+					Parts []struct {
+						Text string `json:"text"`
+					} `json:"parts"`
+				}
+			}
+			if json.Unmarshal(candsRaw, &cands) == nil {
+				for _, cand := range cands {
+					for _, p := range cand.Content.Parts {
+						sb.WriteString(p.Text)
+					}
+				}
+			}
+		}
+	}
+	return sb.String()
+}
+
+// normalizeTrainingMessages parses a raw request body (OpenAI, Claude, or
+// Gemini format) into a uniform [{role, content}] messages array.
+func normalizeTrainingMessages(body string) []map[string]any {
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &root); err != nil {
+		return nil
+	}
+
+	extractContent := func(raw json.RawMessage) string {
+		if len(raw) == 0 {
+			return ""
+		}
+		var text string
+		if err := json.Unmarshal(raw, &text); err == nil {
+			return text
+		}
+		// Content blocks: [{"type":"text","text":"..."}, ...]
+		var blocks []struct {
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal(raw, &blocks); err == nil && len(blocks) > 0 {
+			var parts []string
+			for _, b := range blocks {
+				if b.Text != "" {
+					parts = append(parts, b.Text)
+				}
+			}
+			return strings.Join(parts, "\n")
+		}
+		return string(raw)
+	}
+
+	var result []map[string]any
+
+	// OpenAI / Claude format: messages[] with string or block content.
+	// Both formats use a "messages" array; Claude additionally has top-level system.
+	if msgsRaw, ok := root["messages"]; ok {
+		var messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(msgsRaw, &messages); err == nil && len(messages) > 0 {
+			if system, hasSys := root["system"]; hasSys {
+				if sys := extractContent(system); sys != "" {
+					result = append(result, map[string]any{"role": "system", "content": sys})
+				}
+			}
+			for _, m := range messages {
+				result = append(result, map[string]any{"role": m.Role, "content": extractContent(m.Content)})
+			}
+			return result
+		}
+	}
+
+	// Gemini format: contents[] with role + parts[].text
+	if contentsRaw, ok := root["contents"]; ok {
+		var geminiContents []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		}
+		if err := json.Unmarshal(contentsRaw, &geminiContents); err == nil && len(geminiContents) > 0 {
+			for _, gc := range geminiContents {
+				var parts []string
+				for _, p := range gc.Parts {
+					if p.Text != "" {
+						parts = append(parts, p.Text)
+					}
+				}
+				result = append(result, map[string]any{"role": gc.Role, "content": strings.Join(parts, "\n")})
+			}
+			return result
+		}
+	}
+
+	return nil
 }
