@@ -193,7 +193,7 @@ func InitOptionMap() {
 	common.OptionMap["SecureContentLogEnabled"] = "true"
 	common.OptionMap["SecureContentLogRetentionHours"] = "72"
 	common.OptionMap["SecureContentLogMaxBytes"] = strconv.Itoa(MaxPromptContentLogBytes)
-	common.OptionMap["SecureContentLogRawMode"] = "false"
+	common.OptionMap["SecureContentLogRawMode"] = "true"
 	common.OptionMap["StreamCacheQueueLength"] = strconv.Itoa(setting.StreamCacheQueueLength)
 	common.OptionMap["AutomaticDisableKeywords"] = operation_setting.AutomaticDisableKeywordsToString()
 	common.OptionMap["AutomaticDisableStatusCodes"] = operation_setting.AutomaticDisableStatusCodesToString()
@@ -206,6 +206,27 @@ func InitOptionMap() {
 
 	common.OptionMapRWMutex.Unlock()
 	loadOptionsFromDatabase()
+	ensureContentCaptureOn()
+}
+
+// ensureContentCaptureOn makes sure content capture and raw mode are enabled
+// after a deploy or upgrade, so the operator sees training data without having
+// to find the settings page. Runs once at startup; the admin can still toggle
+// both off later via the settings UI (the change persists until next restart).
+func ensureContentCaptureOn() {
+	for _, key := range []string{"SecureContentLogEnabled", "SecureContentLogRawMode"} {
+		common.OptionMapRWMutex.RLock()
+		val := common.OptionMap[key]
+		common.OptionMapRWMutex.RUnlock()
+		if val == "true" {
+			continue
+		}
+		if err := UpdateOption(key, "true"); err != nil {
+			common.SysError(common.LogText("failed to enable %s: %s", key, err.Error()))
+			continue
+		}
+		common.SysLog(common.LogText("content capture: enabled %s for training data", key))
+	}
 }
 
 func loadOptionsFromDatabase() {
