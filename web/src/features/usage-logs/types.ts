@@ -543,6 +543,37 @@ export interface LogContentResponse {
   }
 }
 
+export interface TrainingSample {
+  request_id: string
+  created_at: number
+  username: string
+  model_name: string
+  request_path: string
+  input_preview: string
+  output_preview: string
+  has_response: boolean
+  input_bytes: number
+  output_bytes: number
+}
+
+export interface TrainingSampleFilters {
+  start_timestamp?: number
+  end_timestamp?: number
+  user_id?: number
+  model_name?: string
+}
+
+export interface TrainingSamplesResponse {
+  success: boolean
+  message?: string
+  data?: {
+    page: number
+    page_size: number
+    total: number
+    items: TrainingSample[]
+  }
+}
+
 export interface GetLogsResponse {
   success: boolean
   message?: string

@@ -34,6 +34,8 @@ import type {
   GetTaskLogsParams,
   LogContentResponse,
   TaskArtifactsResponse,
+  TrainingSampleFilters,
+  TrainingSamplesResponse,
   UserInfo,
 } from './types'
 
@@ -137,6 +139,113 @@ export async function getLogContent(
   })
   const res = await api.get(`/api/prompt-security/content?${queryParams}`)
   return res.data
+}
+
+export async function getTrainingSamples(
+  params: TrainingSampleFilters & { p?: number; page_size?: number } = {}
+): Promise<TrainingSamplesResponse> {
+  const queryParams = buildQueryParams({ ...params })
+  const res = await api.get(
+    `/api/prompt-security/training-samples?${queryParams}`
+  )
+  return res.data
+}
+
+export async function exportTrainingData(
+  format: 'raw' | 'openai',
+  params: TrainingSampleFilters,
+  signal: AbortSignal
+): Promise<{ blob: Blob; count: number }> {
+  const queryParams = buildQueryParams({ format, ...params })
+  const response = await fetch(
+    `/api/prompt-security/content/export?${queryParams}`,
+    { credentials: 'include', headers: await getFreshAuthHeaders(), signal }
+  )
+  if (!response.ok || !response.body) {
+    const body: unknown = await response.json().catch(() => null)
+    throw createServerError(body ?? { status: response.status })
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const lines: string[] = []
+  let buffer = ''
+  let bytes = 0
+  let count: number | undefined
+  let completed = false
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      bytes += value?.byteLength ?? 0
+      // Browser downloads buffer the file; bound memory independently of the server stream.
+      if (bytes > 128 * 1024 * 1024) {
+        throw createServerError({
+          message: 'Export exceeds 128 MiB. Narrow the filters and try again.',
+        })
+      }
+      buffer += done
+        ? decoder.decode()
+        : decoder.decode(value, { stream: true })
+      const chunkLines = buffer.split('\n')
+      buffer = done ? '' : (chunkLines.pop() ?? '')
+      for (const line of chunkLines) {
+        if (!line.trim()) continue
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(line)
+        } catch {
+          throw createServerError({ message: 'Failed to export content' })
+        }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw createServerError({ message: 'Failed to export content' })
+        }
+        if (count !== undefined) {
+          throw createServerError({ message: 'Failed to export content' })
+        }
+        if ('success' in parsed) {
+          if (parsed.success !== true || !('data' in parsed)) {
+            throw createServerError(parsed)
+          }
+          const data = parsed.data
+          if (
+            !data ||
+            typeof data !== 'object' ||
+            !('count' in data) ||
+            typeof data.count !== 'number' ||
+            !Number.isSafeInteger(data.count) ||
+            data.count < 0
+          ) {
+            throw createServerError({ message: 'Failed to export content' })
+          }
+          count = data.count
+        } else {
+          if (
+            (format === 'openai' &&
+              (!('messages' in parsed) || !Array.isArray(parsed.messages))) ||
+            (format === 'raw' &&
+              (!('request_id' in parsed) ||
+                typeof parsed.request_id !== 'string'))
+          ) {
+            throw createServerError({ message: 'Failed to export content' })
+          }
+          lines.push(`${line}\n`)
+        }
+      }
+      if (done) break
+    }
+    if (count === undefined || count !== lines.length) {
+      throw createServerError({ message: 'Failed to export content' })
+    }
+    completed = true
+    // The API result trailer is not a training sample and must not reach the file.
+    return {
+      blob: new Blob(lines, { type: 'application/x-ndjson;charset=utf-8' }),
+      count,
+    }
+  } finally {
+    if (!completed) await reader.cancel().catch(() => undefined)
+    reader.releaseLock()
+  }
 }
 
 export const getUserLogStats = (

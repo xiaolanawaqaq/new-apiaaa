@@ -28,7 +28,6 @@ import { LoadingState } from '@/components/loading-state'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { TitledCard } from '@/components/ui/titled-card'
 import {
   Table,
   TableBody,
@@ -37,9 +36,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { TitledCard } from '@/components/ui/titled-card'
 import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { formatLogQuota, formatNumber, formatTimestampToDate } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatNumber,
+  formatTimestampToDate,
+} from '@/lib/format'
 import { ROLE } from '@/lib/roles'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
@@ -51,6 +55,7 @@ import { getLogTypeConfig } from '../../lib'
 import { buildApiParams } from '../../lib/utils'
 import type { ClientAgentLogItem, ClientAgentUsageRow } from '../../types'
 import { ClientUsageTrendDialog } from './client-usage-trend-dialog'
+import { TrainingDataView } from './training-data-view'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -116,7 +121,11 @@ function ClientUsageTable(props: {
               : row.client_agent
             let selection: ClientSelection
             if (props.unknown) {
-              selection = { clientAgent: '', rawUserAgent: label, unknown: true }
+              selection = {
+                clientAgent: '',
+                rawUserAgent: label,
+                unknown: true,
+              }
             } else {
               selection = { clientAgent: row.client_agent }
             }
@@ -157,7 +166,10 @@ function ClientUsageTable(props: {
           })
         ) : (
           <TableRow>
-            <TableCell colSpan={6} className='text-muted-foreground text-center'>
+            <TableCell
+              colSpan={6}
+              className='text-muted-foreground text-center'
+            >
               {t('No data')}
             </TableCell>
           </TableRow>
@@ -190,7 +202,11 @@ function ClientLogContentDialog(props: {
 
   const sections = [
     { key: 'request', label: t('Input content'), value: item?.request_content },
-    { key: 'response', label: t('Output content'), value: item?.response_content },
+    {
+      key: 'response',
+      label: t('Output content'),
+      value: item?.response_content,
+    },
   ]
   // Error logs carry the failure reason in content; consume logs only hold
   // billing text, which belongs in the log list rather than this dialog.
@@ -341,7 +357,7 @@ function ClientLogsTable(props: { items: ClientAgentLogItem[] }) {
                   <TableCell className='text-right font-mono text-xs tabular-nums'>
                     {formatLogQuota(item.quota)}
                   </TableCell>
-                  <TableCell className='max-w-[160px] truncate text-xs font-mono'>
+                  <TableCell className='max-w-[160px] truncate font-mono text-xs'>
                     {item.request_path || '-'}
                   </TableCell>
                   <TableCell>
@@ -393,12 +409,7 @@ function ClientDetail(props: {
   const [trendOpen, setTrendOpen] = useState(false)
   const pageSize = 20
   const query = useQuery({
-    queryKey: [
-      'usage-logs-client-detail',
-      searchParams,
-      props.selection,
-      page,
-    ],
+    queryKey: ['usage-logs-client-detail', searchParams, props.selection, page],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
@@ -467,14 +478,14 @@ function ClientDetail(props: {
         </div>
       </div>
 
-      {query.isPending ? (
-        <LoadingState />
-      ) : query.isError ? (
+      {query.isPending && <LoadingState />}
+      {query.isError && (
         <ErrorState
           title={t('Failed to load')}
           onRetry={() => void query.refetch()}
         />
-      ) : (
+      )}
+      {query.isSuccess && (
         <>
           {data?.content_capture_enabled === false ? (
             <CaptureDisabledNotice />
@@ -520,10 +531,14 @@ export function ClientUsageDialog(props: {
 }) {
   const { t } = useTranslation()
   const [selection, setSelection] = useState<ClientSelection | null>(null)
-  const query = useClientUsageQuery(props.open)
+  const [showTraining, setShowTraining] = useState(false)
+  const query = useClientUsageQuery(props.open && !showTraining)
 
   const handleOpenChange = (open: boolean) => {
-    if (!open) setSelection(null)
+    if (!open) {
+      setSelection(null)
+      setShowTraining(false)
+    }
     props.onOpenChange(open)
   }
 
@@ -534,26 +549,51 @@ export function ClientUsageDialog(props: {
       title={
         <span className='flex items-center gap-2'>
           <BarChart3 className='size-4' aria-hidden='true' />
-          {t('Client usage')}
+          {showTraining ? t('Training Data') : t('Client usage')}
         </span>
       }
-      description={t('Aggregated from the most recent logs only.')}
+      description={
+        showTraining
+          ? t('Content details')
+          : t('Aggregated from the most recent logs only.')
+      }
+      footer={
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => setShowTraining(!showTraining)}
+        >
+          <FileText className='size-3.5' aria-hidden='true' />
+          {showTraining ? t('Client usage') : t('Training Data')}
+        </Button>
+      }
       contentClassName='sm:max-w-5xl'
       contentHeight='min(70dvh, 640px)'
     >
-      {selection ? (
-        <ClientDetail
-          selection={selection}
-          onBack={() => setSelection(null)}
-        />
-      ) : query.isPending ? (
-        <LoadingState />
-      ) : query.isError ? (
+      {showTraining && (
+        <div className='min-w-0 space-y-3'>
+          <Button
+            variant='ghost'
+            size='sm'
+            onClick={() => setShowTraining(false)}
+          >
+            <ArrowLeft className='size-3.5' aria-hidden='true' />
+            {t('Back')}
+          </Button>
+          <TrainingDataView />
+        </div>
+      )}
+      {!showTraining && selection && (
+        <ClientDetail selection={selection} onBack={() => setSelection(null)} />
+      )}
+      {!showTraining && !selection && query.isPending && <LoadingState />}
+      {!showTraining && !selection && query.isError && (
         <ErrorState
           title={t('Failed to load')}
           onRetry={() => void query.refetch()}
         />
-      ) : (
+      )}
+      {!showTraining && !selection && query.isSuccess && (
         <div className='min-w-0 space-y-4'>
           <TitledCard
             title={t('Client')}
@@ -563,7 +603,7 @@ export function ClientUsageDialog(props: {
             contentClassName='overflow-x-auto'
           >
             <ClientUsageTable
-              rows={query.data.data?.items ?? []}
+              rows={query.data?.data?.items ?? []}
               onSelect={setSelection}
             />
           </TitledCard>
@@ -575,7 +615,7 @@ export function ClientUsageDialog(props: {
             contentClassName='overflow-x-auto'
           >
             <ClientUsageTable
-              rows={query.data.data?.unknown_user_agents ?? []}
+              rows={query.data?.data?.unknown_user_agents ?? []}
               unknown
               onSelect={setSelection}
             />
@@ -583,9 +623,9 @@ export function ClientUsageDialog(props: {
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <span className='text-muted-foreground text-xs'>
               {t('Scanned {{count}} logs', {
-                count: query.data.data?.scanned ?? 0,
+                count: query.data?.data?.scanned ?? 0,
               })}
-              {query.data.data?.truncated
+              {query.data?.data?.truncated
                 ? ` ${t('Analysis truncated to the scan limit.')}`
                 : ''}
             </span>

@@ -30,8 +30,8 @@ import { formatNumber, formatTimestampToDate } from '@/lib/format'
 import { requireServerSuccess } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
 
-import { buildApiParams } from '../../lib/utils'
 import { getClientAgentUsageTrend } from '../../api'
+import { buildApiParams } from '../../lib/utils'
 import type { ClientAgentUsageTrendPoint } from '../../types'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
@@ -64,15 +64,14 @@ function ClientUsageTrendChart(props: {
   const plotHeight = CHART_HEIGHT - CHART_PADDING * 2
   const values = useMemo(
     () =>
-      props.points.map((p) =>
-        max > 0 ? (p.requests / max) * plotHeight : 0
-      ),
+      props.points.map((p) => (max > 0 ? (p.requests / max) * plotHeight : 0)),
     [props.points, max, plotHeight]
   )
   const path = trendPath(values, CHART_WIDTH, CHART_HEIGHT - CHART_PADDING)
   const totalRequests = props.points.reduce((sum, p) => sum + p.requests, 0)
+  const lastPoint = props.points.at(-1)
 
-  if (props.points.length === 0) {
+  if (!lastPoint) {
     return (
       <p className='text-muted-foreground py-8 text-center text-sm'>
         {t('No data')}
@@ -116,9 +115,7 @@ function ClientUsageTrendChart(props: {
           />
           {values.map((value, index) => {
             const step =
-              values.length > 1
-                ? CHART_WIDTH / (values.length - 1)
-                : 0
+              values.length > 1 ? CHART_WIDTH / (values.length - 1) : 0
             return (
               <circle
                 key={props.points[index].window_start}
@@ -136,14 +133,8 @@ function ClientUsageTrendChart(props: {
         </svg>
       </div>
       <div className='text-muted-foreground flex justify-between text-[10px] tabular-nums'>
-        <span>
-          {formatTimestampToDate(props.points[0].window_start)}
-        </span>
-        <span>
-          {formatTimestampToDate(
-            props.points[props.points.length - 1].window_start
-          )}
-        </span>
+        <span>{formatTimestampToDate(props.points[0].window_start)}</span>
+        <span>{formatTimestampToDate(lastPoint.window_start)}</span>
       </div>
     </div>
   )
@@ -193,7 +184,7 @@ export function ClientUsageTrendDialog(props: {
     placeholderData: (previousData) => previousData,
   })
 
-  const points = query.data.data?.points ?? []
+  const points = query.data?.data?.points ?? []
 
   return (
     <Dialog
@@ -213,14 +204,14 @@ export function ClientUsageTrendDialog(props: {
       contentClassName='sm:max-w-3xl'
       contentHeight='min(70dvh, 520px)'
     >
-      {query.isPending ? (
-        <LoadingState />
-      ) : query.isError ? (
+      {query.isPending && <LoadingState />}
+      {query.isError && (
         <ErrorState
           title={t('Failed to load')}
           onRetry={() => void query.refetch()}
         />
-      ) : (
+      )}
+      {query.isSuccess && (
         <div className='min-w-0 space-y-4'>
           <ClientUsageTrendChart points={points} />
           <div className='flex items-center justify-end gap-2'>

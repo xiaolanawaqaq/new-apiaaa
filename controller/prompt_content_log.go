@@ -195,6 +195,40 @@ func CleanupPromptContentLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "", "data": gin.H{"deleted": removed}})
 }
 
+func ListTrainingSamples(c *gin.Context) {
+	if !requirePromptSecurityAdmin(c) {
+		return
+	}
+	page := common.GetPageQuery(c)
+	page.Page = max(page.Page, 1)
+	if page.PageSize <= 0 {
+		page.PageSize = 20
+	}
+	startAt, _ := strconv.ParseInt(c.Query("start_timestamp"), 10, 64)
+	endAt, _ := strconv.ParseInt(c.Query("end_timestamp"), 10, 64)
+	userID, _ := strconv.Atoi(c.Query("user_id"))
+	tokenID, _ := strconv.Atoi(c.Query("token_id"))
+	channelID, _ := strconv.Atoi(c.Query("channel_id"))
+
+	samples, total, err := model.ListTrainingSamples(model.PromptContentLogFilter{
+		UserID:    userID,
+		TokenID:   tokenID,
+		ChannelID: channelID,
+		RequestID: c.Query("request_id"),
+		ModelName: c.Query("model_name"),
+		StartAt:   startAt,
+		EndAt:     endAt,
+		RawOnly:   true,
+	}, page.GetStartIdx(), page.GetPageSize())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	page.SetTotal(int(total))
+	page.SetItems(samples)
+	common.ApiSuccess(c, page)
+}
+
 // ExportPromptContentPairs streams raw-mode request/response pairs as NDJSON.
 // Each line is one complete pair, which is the shape training-data pipelines
 // expect; the trailing line is the usual API result object.

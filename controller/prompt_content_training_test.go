@@ -2,7 +2,9 @@ package controller
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,85 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestListTrainingSamplesEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	previousLogDB := model.LOG_DB
+	model.LOG_DB = db
+	t.Cleanup(func() {
+		model.LOG_DB = previousLogDB
+		require.NoError(t, sqlDB.Close())
+	})
+	require.NoError(t, db.AutoMigrate(&model.PromptContentLog{}))
+	now := time.Now().Unix()
+	require.NoError(t, db.Create(&model.PromptContentLog{
+		CreatedAt: now - 10, ExpiresAt: now + 3600,
+		UserID: 1, TokenID: 2, ChannelID: 3, ModelName: "gpt-4o", RequestID: "t1",
+		Direction: model.PromptContentDirectionRequest, Raw: true, Content: "request body",
+	}).Error)
+
+	for _, tc := range []struct {
+		name  string
+		role  int
+		query string
+		total int
+	}{
+		{name: "anonymous"},
+		{name: "ordinary user", role: common.RoleCommonUser},
+		{name: "admin", role: common.RoleAdminUser, total: 1},
+		{name: "root", role: common.RoleRootUser, total: 1},
+		{name: "user filter", role: common.RoleAdminUser, query: "user_id=9"},
+		{name: "token filter", role: common.RoleAdminUser, query: "token_id=9"},
+		{name: "channel filter", role: common.RoleAdminUser, query: "channel_id=9"},
+		{name: "request filter", role: common.RoleAdminUser, query: "request_id=missing"},
+		{name: "model filter", role: common.RoleAdminUser, query: "model_name=missing"},
+		{name: "start filter", role: common.RoleAdminUser, query: "start_timestamp=" + strconv.FormatInt(now, 10)},
+		{name: "end filter", role: common.RoleAdminUser, query: "end_timestamp=" + strconv.FormatInt(now-20, 10)},
+		{name: "matching filters", role: common.RoleAdminUser, query: "user_id=1&token_id=2&channel_id=3&request_id=t1&model_name=gpt-4o", total: 1},
+		{name: "negative pagination", role: common.RoleAdminUser, query: "p=-1&page_size=-1", total: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/prompt-security/training-samples?"+tc.query, nil)
+			c.Set("role", tc.role)
+			ListTrainingSamples(c)
+
+			var result struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Page     int                    `json:"page"`
+					PageSize int                    `json:"page_size"`
+					Total    int                    `json:"total"`
+					Items    []model.TrainingSample `json:"items"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+			if tc.role < common.RoleAdminUser {
+				assert.Equal(t, http.StatusForbidden, recorder.Code)
+				assert.False(t, result.Success)
+				assert.Nil(t, result.Data.Items)
+				return
+			}
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.True(t, result.Success)
+			assert.Equal(t, 1, result.Data.Page)
+			assert.Positive(t, result.Data.PageSize)
+			assert.Equal(t, tc.total, result.Data.Total)
+			require.NotNil(t, result.Data.Items)
+			require.Len(t, result.Data.Items, tc.total)
+			if tc.total > 0 {
+				assert.Equal(t, "t1", result.Data.Items[0].RequestID)
+				assert.False(t, result.Data.Items[0].HasResponse)
+			}
+		})
+	}
+}
 
 func TestZZBuildOpenAITrainingSample(t *testing.T) {
 	pair := model.PromptContentPair{

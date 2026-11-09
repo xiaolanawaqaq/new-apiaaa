@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
+	"gorm.io/gorm"
 )
 
 // PromptContentLog stores a short-lived copy of request or response text.
@@ -219,6 +220,127 @@ type PromptContentPair struct {
 	RequestPath string `json:"request_path"`
 	Request     string `json:"request,omitempty"`
 	Response    string `json:"response,omitempty"`
+}
+
+type TrainingSample struct {
+	RequestID     string `json:"request_id"`
+	CreatedAt     int64  `json:"created_at"`
+	Username      string `json:"username"`
+	ModelName     string `json:"model_name"`
+	RequestPath   string `json:"request_path"`
+	InputPreview  string `json:"input_preview"`
+	OutputPreview string `json:"output_preview"`
+	HasResponse   bool   `json:"has_response"`
+	InputBytes    int    `json:"input_bytes"`
+	OutputBytes   int    `json:"output_bytes"`
+}
+
+func ListTrainingSamples(filter PromptContentLogFilter, start, limit int) ([]TrainingSample, int64, error) {
+	if LOG_DB == nil {
+		return nil, 0, errors.New("log database is unavailable")
+	}
+	start = max(start, 0)
+	if limit <= 0 {
+		limit = 20
+	}
+	limit = min(limit, 100)
+
+	now := time.Now().Unix()
+	base := LOG_DB.Model(&PromptContentLog{}).
+		Where("raw = ?", true).
+		Where("direction = ?", PromptContentDirectionRequest).
+		Where("expires_at > ?", now)
+	if filter.UserID > 0 {
+		base = base.Where("user_id = ?", filter.UserID)
+	}
+	if filter.TokenID > 0 {
+		base = base.Where("token_id = ?", filter.TokenID)
+	}
+	if filter.ChannelID > 0 {
+		base = base.Where("channel_id = ?", filter.ChannelID)
+	}
+	if filter.RequestID != "" {
+		base = base.Where("request_id = ?", filter.RequestID)
+	}
+	if filter.ModelName != "" {
+		base = base.Where("model_name = ?", filter.ModelName)
+	}
+	// Time bounds select requests; their responses may arrive after the window.
+	if filter.StartAt > 0 {
+		base = base.Where("created_at >= ?", filter.StartAt)
+	}
+	if filter.EndAt > 0 {
+		base = base.Where("created_at <= ?", filter.EndAt)
+	}
+
+	var total int64
+	if err := base.Session(&gorm.Session{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var requestRows []struct {
+		RequestID   string
+		CreatedAt   int64
+		Username    string
+		ModelName   string
+		RequestPath string
+		Content     LongText
+	}
+	if err := base.Session(&gorm.Session{}).
+		Select("request_id, created_at, username, model_name, request_path, content").
+		Order("created_at DESC").Order("id DESC").Order("request_id DESC").
+		Offset(start).Limit(limit).
+		Find(&requestRows).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(requestRows) == 0 {
+		return []TrainingSample{}, total, nil
+	}
+
+	requestIDs := make([]string, len(requestRows))
+	for i, row := range requestRows {
+		requestIDs[i] = row.RequestID
+	}
+	var responseRows []struct {
+		RequestID string
+		Content   LongText
+	}
+	if err := LOG_DB.Model(&PromptContentLog{}).
+		Select("request_id, content").
+		Where("request_id IN ?", requestIDs).
+		Where("direction = ?", PromptContentDirectionResponse).
+		Where("raw = ?", true).
+		Where("expires_at > ?", now).
+		Order("created_at DESC").Order("id DESC").
+		Find(&responseRows).Error; err != nil {
+		return nil, 0, err
+	}
+	responseByRequestID := make(map[string]string, len(responseRows))
+	for _, row := range responseRows {
+		if _, exists := responseByRequestID[row.RequestID]; !exists {
+			responseByRequestID[row.RequestID] = string(row.Content)
+		}
+	}
+
+	samples := make([]TrainingSample, 0, len(requestRows))
+	const previewLen = 200
+	for _, row := range requestRows {
+		output, hasResponse := responseByRequestID[row.RequestID]
+		input := string(row.Content)
+		samples = append(samples, TrainingSample{
+			RequestID:     row.RequestID,
+			CreatedAt:     row.CreatedAt,
+			Username:      row.Username,
+			ModelName:     row.ModelName,
+			RequestPath:   row.RequestPath,
+			InputPreview:  truncateUTF8Bytes(input, previewLen),
+			OutputPreview: truncateUTF8Bytes(output, previewLen),
+			HasResponse:   hasResponse,
+			InputBytes:    len(input),
+			OutputBytes:   len(output),
+		})
+	}
+	return samples, total, nil
 }
 
 // StreamRawPromptContentPairs walks raw-mode rows newest first and calls fn with

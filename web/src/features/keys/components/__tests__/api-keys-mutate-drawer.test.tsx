@@ -303,6 +303,13 @@ describe('API key expiry across editing sessions', () => {
         model_limits_enabled: false,
         model_limits: '',
         allow_ips: '',
+        channel_id: 0,
+        hourly_input_limit: 0,
+        hourly_output_limit: 0,
+        daily_input_limit: 0,
+        daily_output_limit: 0,
+        monthly_input_limit: 0,
+        monthly_output_limit: 0,
         allow_user_quota_query: true,
       }
       const second = { ...first, id: 2, name: 'non-expiring', expired_time: -1 }
