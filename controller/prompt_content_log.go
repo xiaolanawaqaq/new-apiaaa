@@ -216,6 +216,7 @@ func ListTrainingSamples(c *gin.Context) {
 		ChannelID: channelID,
 		RequestID: c.Query("request_id"),
 		ModelName: c.Query("model_name"),
+		Keyword:   c.Query("keyword"),
 		StartAt:   startAt,
 		EndAt:     endAt,
 		RawOnly:   true,
@@ -242,6 +243,7 @@ func ExportPromptContentPairs(c *gin.Context) {
 	tokenID, _ := strconv.Atoi(c.Query("token_id"))
 	channelID, _ := strconv.Atoi(c.Query("channel_id"))
 	modelName := c.Query("model_name")
+	keyword := c.Query("keyword")
 	format := c.Query("format")
 	requireResponse := c.Query("require_response") == "true"
 
@@ -281,6 +283,7 @@ func ExportPromptContentPairs(c *gin.Context) {
 		TokenID:   tokenID,
 		ChannelID: channelID,
 		ModelName: modelName,
+		Keyword:   keyword,
 		StartAt:   startAt,
 		EndAt:     endAt,
 		RawOnly:   true,

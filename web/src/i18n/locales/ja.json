@@ -1,5 +1,8 @@
 {
   "translation": {
+    "360": "360",
+    "1000": "1000",
+    "10000": "10000",
     "0 means data is kept permanently": "0 はデータを永続的に保持することを意味します",
     "0 means unlimited": "0は無制限を意味します",
     "1 Day": "1日",
@@ -46,9 +49,6 @@
     "100 / page": "100 / ページ",
     "180 days": "180 日",
     "192.168.1.1&#10;10.0.0.0/8": "192.168.1.1&#10;10.0.0.0/8",
-    "360": "360",
-    "1000": "1000",
-    "10000": "10000",
     "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"": "\"default \":\" us - central 1 \", \"claude -3 -5 - sonnet -20240620 \":\" europe - west 1 \"",
     "#1 App": "#1 アプリ",
     "#1 Model": "#1 モデル",
@@ -3201,6 +3201,7 @@
     "Key enabled": "キーを有効にしました",
     "Key index out of range": "キーのインデックスが範囲外です",
     "Keys, OAuth credentials, and multi-key update behavior.": "キー、OAuth 認証情報、マルチキー更新動作を管理します。",
+    "Keyword search": "キーワード検索",
     "Kind": "種類",
     "Kling": "Kling",
     "Knowledge Base ID": "ナレッジベースID",

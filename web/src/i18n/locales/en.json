@@ -1,5 +1,8 @@
 {
   "translation": {
+    "360": "360",
+    "1000": "1000",
+    "10000": "10000",
     "0 means data is kept permanently": "0 means data is kept permanently",
     "0 means unlimited": "0 means unlimited",
     "1 Day": "1 Day",
@@ -46,9 +49,6 @@
     "100 / page": "100 / page",
     "180 days": "180 days",
     "192.168.1.1&#10;10.0.0.0/8": "192.168.1.1&#10;10.0.0.0/8",
-    "360": "360",
-    "1000": "1000",
-    "10000": "10000",
     "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"",
     "#1 App": "#1 App",
     "#1 Model": "#1 Model",
@@ -3218,6 +3218,7 @@
     "Key enabled": "Key enabled",
     "Key index out of range": "Key index out of range",
     "Keys, OAuth credentials, and multi-key update behavior.": "Keys, OAuth credentials, and multi-key update behavior.",
+    "Keyword search": "Keyword search",
     "Kind": "Kind",
     "Kling": "Kling",
     "Knowledge Base ID": "Knowledge Base ID",

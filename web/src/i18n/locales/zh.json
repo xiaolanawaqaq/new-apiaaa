@@ -1,5 +1,8 @@
 {
   "translation": {
+    "360": "360",
+    "1000": "1000",
+    "10000": "10000",
     "0 means data is kept permanently": "0 表示永久保留数据",
     "0 means unlimited": "0 表示不限",
     "1 Day": "1 天",
@@ -46,9 +49,6 @@
     "100 / page": "100 条/页",
     "180 days": "180 天",
     "192.168.1.1&#10;10.0.0.0/8": "192.168.1.1&#10;10.0.0.0/8",
-    "360": "360",
-    "1000": "1000",
-    "10000": "10000",
     "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"",
     "#1 App": "#1 应用",
     "#1 Model": "#1 模型",
@@ -3218,6 +3218,7 @@
     "Key enabled": "密钥已启用",
     "Key index out of range": "密钥索引超出范围",
     "Keys, OAuth credentials, and multi-key update behavior.": "管理密钥、OAuth 凭据和多密钥更新行为。",
+    "Keyword search": "关键词搜索",
     "Kind": "类型",
     "Kling": "Kling",
     "Knowledge Base ID": "知识库 ID",

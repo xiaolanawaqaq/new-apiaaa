@@ -561,6 +561,7 @@ export interface TrainingSampleFilters {
   end_timestamp?: number
   user_id?: number
   model_name?: string
+  keyword?: string
 }
 
 export interface TrainingSamplesResponse {

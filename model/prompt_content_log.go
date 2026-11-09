@@ -47,6 +47,8 @@ type PromptContentLogFilter struct {
 	Direction string
 	StartAt   int64
 	EndAt     int64
+	// Keyword does a case-insensitive substring match against the content.
+	Keyword string
 	// RawOnly restricts the query to verbatim bodies captured in raw mode.
 	RawOnly bool
 }
@@ -264,6 +266,10 @@ func ListTrainingSamples(filter PromptContentLogFilter, start, limit int) ([]Tra
 	}
 	if filter.ModelName != "" {
 		base = base.Where("model_name = ?", filter.ModelName)
+	}
+	if filter.Keyword != "" {
+		// Content column is text/longtext; LIKE is the only portable search.
+		base = base.Where("LOWER(content) LIKE ?", "%"+strings.ToLower(filter.Keyword)+"%")
 	}
 	// Time bounds select requests; their responses may arrive after the window.
 	if filter.StartAt > 0 {

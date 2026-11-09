@@ -57,6 +57,7 @@ function TrainingDataBrowser(props: { isRoot: boolean }) {
   const [page, setPage] = useState(1)
   const [model, setModel] = useState('')
   const [userId, setUserId] = useState('')
+  const [keyword, setKeyword] = useState('')
   const [range, setRange] = useState<{ start?: Date; end?: Date }>({})
   const [filters, setFilters] = useState<TrainingSampleFilters>({})
   const [selected, setSelected] = useState<string | null>(null)
@@ -172,6 +173,7 @@ function TrainingDataBrowser(props: { isRoot: boolean }) {
           setFilters({
             model_name: model.trim() || undefined,
             user_id: userId ? Number(userId) : undefined,
+            keyword: keyword.trim() || undefined,
             start_timestamp: range.start
               ? Math.floor(range.start.getTime() / 1000)
               : undefined,
@@ -187,6 +189,13 @@ function TrainingDataBrowser(props: { isRoot: boolean }) {
           placeholder={t('Model')}
           value={model}
           onChange={(event) => setModel(event.target.value)}
+        />
+        <Input
+          className='w-48'
+          aria-label={t('Keyword search')}
+          placeholder={t('Keyword search')}
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
         />
         <Input
           className='w-32'
@@ -220,6 +229,7 @@ function TrainingDataBrowser(props: { isRoot: boolean }) {
           onClick={() => {
             setModel('')
             setUserId('')
+            setKeyword('')
             setRange({})
             setFilters({})
             setPage(1)

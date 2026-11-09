@@ -1,5 +1,8 @@
 {
   "translation": {
+    "360": "360",
+    "1000": "1000",
+    "10000": "10000",
     "0 means data is kept permanently": "0 означает, что данные хранятся постоянно",
     "0 means unlimited": "0 означает без ограничений",
     "1 Day": "1 день",
@@ -46,9 +49,6 @@
     "100 / page": "100 / страница",
     "180 days": "180 дней",
     "192.168.1.1&#10;10.0.0.0/8": "192.168.1.1&#10;10.0.0.0/8",
-    "360": "360",
-    "1000": "1000",
-    "10000": "10000",
     "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"": "\"default\": \"us-central1\", \"claude-3-5-sonnet-20240620\": \"europe-west1\"",
     "#1 App": "#1 Приложение",
     "#1 Model": "#1 Модель",
@@ -3201,6 +3201,7 @@
     "Key enabled": "Ключ включён",
     "Key index out of range": "Индекс ключа вне диапазона",
     "Keys, OAuth credentials, and multi-key update behavior.": "Ключи, учетные данные OAuth и поведение обновления нескольких ключей.",
+    "Keyword search": "Поиск по ключевому слову",
     "Kind": "Тип",
     "Kling": "Kling",
     "Knowledge Base ID": "ID базы знаний",
