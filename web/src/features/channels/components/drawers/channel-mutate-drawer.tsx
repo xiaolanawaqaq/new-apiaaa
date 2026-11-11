@@ -2272,19 +2272,42 @@ export function ChannelMutateDrawer({
         control={form.control}
         name='auto_ban'
         render={({ field }) => (
-          <FormItem className='flex items-center justify-between'>
-            <div className='space-y-0.5'>
-              <FormLabel>{t('Auto Ban')}</FormLabel>
-              <FormDescription>
-                {t(FIELD_DESCRIPTIONS.AUTO_BAN)}
-              </FormDescription>
-            </div>
-            <FormControl>
-              <Switch
-                checked={field.value === 1}
-                onCheckedChange={(checked) => field.onChange(checked ? 1 : 0)}
-              />
-            </FormControl>
+          <FormItem>
+            <FormLabel>{t('Auto Ban')}</FormLabel>
+            <Select
+              items={[
+                { value: '1', label: t('Follow global auto-disable rules') },
+                { value: '0', label: t('Do not auto-disable; keep using') },
+              ]}
+              value={String(field.value ?? 1)}
+              onValueChange={(value) => field.onChange(value === '0' ? 0 : 1)}
+            >
+              <FormControl>
+                <SelectTrigger
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  className='w-full'
+                >
+                  <SelectValue />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='1'>
+                    {t('Follow global auto-disable rules')}
+                  </SelectItem>
+                  <SelectItem value='0'>
+                    {t('Do not auto-disable; keep using')}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FormDescription>
+              {t(
+                'Opting out only prevents automatic disabling. Errors are still logged. Manually disabled channels remain unavailable. Already auto-disabled channels must be manually enabled once.'
+              )}
+            </FormDescription>
+            <FormMessage />
           </FormItem>
         )}
       />

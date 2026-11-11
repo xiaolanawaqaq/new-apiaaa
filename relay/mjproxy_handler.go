@@ -19,6 +19,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/system_setting"
@@ -589,11 +590,8 @@ func RelayMidjourneySubmit(c *gin.Context, relayInfo *relaycommon.RelayInfo) *dt
 		if err != nil {
 			common.SysLog(common.LogText("get_channel_null: %s", err.Error()))
 		}
-		if channel != nil && channel.GetAutoBan() && common.AutomaticDisableChannelEnabled {
-			if model.UpdateChannelStatus(midjourneyTask.ChannelId, "", common.ChannelStatusManuallyDisabled, "No available account instance") {
-				service.CloseActiveWebSocketsForChannel(midjourneyTask.ChannelId, service.ChannelDisabledCloseReason)
-				service.RequestPolicy(c).AddEvent(service.PolicyEvent{ChannelID: midjourneyTask.ChannelId, Decision: service.PolicyDecision{Action: "stop", Reason: "task_failed", Source: "upstream"}, Health: "channel_disable_requested"})
-			}
+		if channel != nil && service.DisableChannel(*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, "", channel.GetAutoBan()), "No available account instance") {
+			service.RequestPolicy(c).AddEvent(service.PolicyEvent{ChannelID: midjourneyTask.ChannelId, Decision: service.PolicyDecision{Action: "stop", Reason: "task_failed", Source: "upstream"}, Health: "channel_disable_requested"})
 		}
 	}
 	if midjResponse.Code != 1 && midjResponse.Code != 21 && midjResponse.Code != 22 {

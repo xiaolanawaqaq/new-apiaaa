@@ -59,6 +59,8 @@ type QuickOption = {
   key: string
   label: string
   description: ReactNode
+  title?: string
+  offLabel?: string
   checked: boolean
   onCheckedChange: (value: boolean) => void
   disabled: boolean
@@ -140,11 +142,22 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
       disabled: sensitiveDisabled || headerPassthroughState === 'invalid',
     })
   }
+  const autoBanEnabled = (autoBan ?? 1) === 1
+  const autoBanDescription = t(
+    'Opting out only prevents automatic disabling. Errors are still logged. Manually disabled channels remain unavailable. Already auto-disabled channels must be manually enabled once.'
+  )
   options.push({
     key: 'auto-ban',
     label: t('Auto-disable channel'),
-    description: <ChannelHealthSource autoBan={(autoBan ?? 1) === 1} />,
-    checked: (autoBan ?? 1) === 1,
+    description: (
+      <>
+        <ChannelHealthSource autoBan={autoBanEnabled} />
+        <span className='block'>{autoBanDescription}</span>
+      </>
+    ),
+    title: autoBanDescription,
+    offLabel: t('Do not auto-disable; keep using'),
+    checked: autoBanEnabled,
     onCheckedChange: (value) =>
       form.setValue('auto_ban', value ? 1 : 0, {
         shouldDirty: true,
@@ -186,25 +199,41 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
           <div
             key={option.key}
             title={
-              typeof option.description === 'string'
+              option.title ??
+              (typeof option.description === 'string'
                 ? option.description
-                : undefined
+                : undefined)
             }
             className='border-border/60 bg-muted/30 flex items-center gap-2 rounded-md border px-2.5 py-1.5'
           >
             <Switch
               id={`${id}-${option.key}`}
+              aria-describedby={
+                option.title ? `${id}-${option.key}-description` : undefined
+              }
               size='sm'
               checked={option.checked}
               onCheckedChange={option.onCheckedChange}
               disabled={option.disabled}
             />
-            <Label
-              htmlFor={`${id}-${option.key}`}
-              className='cursor-pointer text-xs font-medium'
-            >
-              {option.label}
-            </Label>
+            <div className='min-w-0'>
+              <Label
+                htmlFor={`${id}-${option.key}`}
+                className='cursor-pointer text-xs font-medium'
+              >
+                {option.label}
+              </Label>
+              {!option.checked && option.offLabel && (
+                <span className='text-muted-foreground block text-xs'>
+                  {option.offLabel}
+                </span>
+              )}
+            </div>
+            {option.title && (
+              <span id={`${id}-${option.key}-description`} className='sr-only'>
+                {option.title}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -231,7 +260,14 @@ export function ChannelQuickOptions(props: ChannelQuickOptionsProps) {
             checked={option.checked}
             onCheckedChange={option.onCheckedChange}
             label={option.label}
-            description={option.description}
+            description={
+              <>
+                {!option.checked && option.offLabel && (
+                  <span className='block'>{option.offLabel}</span>
+                )}
+                {option.description}
+              </>
+            }
             disabled={option.disabled}
           />
         ))}

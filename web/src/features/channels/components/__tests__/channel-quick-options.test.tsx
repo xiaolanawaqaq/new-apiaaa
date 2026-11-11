@@ -223,6 +223,74 @@ describe('header passthrough quick option', () => {
   })
 })
 
+describe.each(['stacked', 'inline'] as const)(
+  '%s auto-disable quick option',
+  (layout) => {
+    const autoDisableSwitch = { name: 'Auto-disable channel' }
+    const optOutLabel = 'Do not auto-disable; keep using'
+    const explanation =
+      'Opting out only prevents automatic disabling. Errors are still logged. Manually disabled channels remain unavailable. Already auto-disabled channels must be manually enabled once.'
+
+    test('keeps automatic disabling on by default and saves an explicit opt-out as numeric zero', async () => {
+      const user = userEvent.setup()
+      const confirm = vi.fn(() => Promise.resolve(true))
+      const onSave = vi.fn()
+      render(
+        <QuickOptionsHarness
+          layout={layout}
+          confirm={confirm}
+          onSave={onSave}
+        />
+      )
+      const toggle = screen.getByRole('switch', autoDisableSwitch)
+      expect(toggle).toBeChecked()
+      expect(screen.queryByText(optOutLabel)).not.toBeInTheDocument()
+      toggle.focus()
+      await user.keyboard(' ')
+      expect(toggle).not.toBeChecked()
+      expect(screen.getByText(optOutLabel)).toBeVisible()
+      expect(toggle).toHaveAccessibleDescription(new RegExp(explanation))
+      if (layout === 'inline') {
+        expect(toggle.closest('[title]')).toHaveAttribute('title', explanation)
+      } else {
+        expect(screen.getByText(explanation)).toBeVisible()
+      }
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({ auto_ban: 0 })
+        )
+      )
+      expect(confirm).not.toHaveBeenCalled()
+    })
+
+    test('loads an existing opt-out and can return to following global rules', async () => {
+      const user = userEvent.setup()
+      const onSave = vi.fn()
+      render(
+        <QuickOptionsHarness
+          layout={layout}
+          values={{ auto_ban: 0 }}
+          confirm={() => Promise.resolve(true)}
+          onSave={onSave}
+        />
+      )
+      const toggle = screen.getByRole('switch', autoDisableSwitch)
+      expect(toggle).not.toBeChecked()
+      expect(screen.getByText(optOutLabel)).toBeVisible()
+      await user.click(toggle)
+      expect(toggle).toBeChecked()
+      expect(screen.queryByText(optOutLabel)).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Save' }))
+      await waitFor(() =>
+        expect(onSave).toHaveBeenCalledWith(
+          expect.objectContaining({ auto_ban: 1 })
+        )
+      )
+    })
+  }
+)
+
 describe('body passthrough quick option', () => {
   test.each([
     { channelType: 1, enabled: true },

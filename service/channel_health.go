@@ -13,9 +13,9 @@ import (
 // 渠道健康分类。temporary 错误按连续失败计数；balance_exhausted 直接禁用
 // 且永不自动探测；其余（认证/参数等）既不计数也不触发禁用。
 const (
-	ChannelErrorTemporary         = "temporary"
+	ChannelErrorTemporary        = "temporary"
 	ChannelErrorBalanceExhausted = "balance_exhausted"
-	ChannelErrorUncounted         = "uncounted"
+	ChannelErrorUncounted        = "uncounted"
 )
 
 // balanceExhaustedKeywords 是上游余额耗尽的典型报错片段。命中任意一条即归类
@@ -139,7 +139,7 @@ func RecordChannelFailure(channel *model.Channel, err *types.NewAPIError) (strin
 		return ChannelErrorUncounted, false
 	}
 	classification := ClassifyChannelError(err)
-	if classification == ChannelErrorUncounted {
+	if classification == ChannelErrorUncounted || !common.AutomaticDisableChannelEnabled {
 		return classification, false
 	}
 
@@ -150,8 +150,8 @@ func RecordChannelFailure(channel *model.Channel, err *types.NewAPIError) (strin
 
 		// 其他写方可能已更新渠道状态，失败计数必须基于最新数据。
 		fresh, loadErr := model.GetChannelById(channel.Id, true)
-		if loadErr != nil {
-			fresh = channel
+		if loadErr != nil || !common.AutomaticDisableChannelEnabled || !fresh.GetAutoBan() {
+			return channelHealth{}, nil, true
 		}
 		health := readChannelHealth(fresh)
 		if fresh.Status != common.ChannelStatusEnabled {
@@ -172,35 +172,39 @@ func RecordChannelFailure(channel *model.Channel, err *types.NewAPIError) (strin
 	// DisableChannel -> UpdateChannelStatus 内部获取同一把轮询锁，必须在
 	// 锁释放后再调用（见上面临时函数立即执行即释放）。
 	if classification == ChannelErrorBalanceExhausted {
+		if !DisableChannel(types.ChannelError{
+			ChannelId:   fresh.Id,
+			ChannelType: fresh.Type,
+			ChannelName: fresh.Name,
+			IsMultiKey:  fresh.ChannelInfo.IsMultiKey,
+			AutoBan:     fresh.GetAutoBan(),
+		}, "balance exhausted: "+common.LocalLogPreview(err.Error())) {
+			return classification, false
+		}
 		health.DisabledReason = "balance exhausted"
 		health.NextProbeTime = 0
 		if err := persistHealthOverride(fresh.Id, health); err != nil {
 			common.SysLog("channel health: failed to persist health state (channel #" + strconv.Itoa(fresh.Id) + "): " + err.Error())
 		}
-		DisableChannel(types.ChannelError{
-			ChannelId:   fresh.Id,
-			ChannelType: fresh.Type,
-			ChannelName: fresh.Name,
-			IsMultiKey:  fresh.ChannelInfo.IsMultiKey,
-			AutoBan:     true,
-		}, "balance exhausted: "+common.LocalLogPreview(err.Error()))
 		common.SysLog("channel health: channel disabled after balance exhausted (channel #" + strconv.Itoa(fresh.Id) + ")")
 		return classification, true
 	}
 
 	if health.ConsecutiveFailures >= ChannelFailureThreshold() {
+		if !DisableChannel(types.ChannelError{
+			ChannelId:   fresh.Id,
+			ChannelType: fresh.Type,
+			ChannelName: fresh.Name,
+			IsMultiKey:  fresh.ChannelInfo.IsMultiKey,
+			AutoBan:     fresh.GetAutoBan(),
+		}, "consecutive failures: "+common.LocalLogPreview(err.Error())) {
+			return classification, false
+		}
 		health.DisabledReason = "consecutive temporary failures"
 		health.NextProbeTime = common.GetTimestamp() + int64(ChannelHealthProbeInterval().Seconds())
 		if err := persistHealthOverride(fresh.Id, health); err != nil {
 			common.SysLog("channel health: failed to persist health state (channel #" + strconv.Itoa(fresh.Id) + "): " + err.Error())
 		}
-		DisableChannel(types.ChannelError{
-			ChannelId:   fresh.Id,
-			ChannelType: fresh.Type,
-			ChannelName: fresh.Name,
-			IsMultiKey:  fresh.ChannelInfo.IsMultiKey,
-			AutoBan:     true,
-		}, "consecutive failures: "+common.LocalLogPreview(err.Error()))
 		common.SysLog("channel health: channel disabled after consecutive failures (channel #" + strconv.Itoa(fresh.Id) + ", count=" + strconv.Itoa(health.ConsecutiveFailures) + ")")
 		return classification, true
 	}
@@ -217,6 +221,9 @@ func persistHealthOverride(channelID int, health channelHealth) error {
 	channel, loadErr := model.GetChannelById(channelID, true)
 	if loadErr != nil {
 		return loadErr
+	}
+	if !common.AutomaticDisableChannelEnabled || !channel.GetAutoBan() || channel.Status != common.ChannelStatusAutoDisabled {
+		return nil
 	}
 	writeChannelHealth(channel, health)
 	return model.DB.Model(&model.Channel{}).Where("id = ?", channelID).

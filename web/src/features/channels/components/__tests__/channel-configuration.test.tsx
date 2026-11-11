@@ -1201,8 +1201,18 @@ test('quick options and detailed settings share changes across tabs and save the
   ).toBeChecked()
 
   await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
-  expect(screen.getByRole('switch', { name: 'Auto Ban' })).toBeChecked()
-  await user.click(screen.getByRole('switch', { name: 'Auto Ban' }))
+  const autoBan = screen.getByRole('combobox', { name: 'Auto Ban' })
+  expect(autoBan).toHaveTextContent('Follow global auto-disable rules')
+  expect(autoBan).toHaveAccessibleDescription(
+    'Opting out only prevents automatic disabling. Errors are still logged. Manually disabled channels remain unavailable. Already auto-disabled channels must be manually enabled once.'
+  )
+  await user.click(autoBan)
+  expect(
+    screen.getByRole('option', { name: 'Follow global auto-disable rules' })
+  ).toHaveAttribute('aria-selected', 'true')
+  await user.click(
+    screen.getByRole('option', { name: 'Do not auto-disable; keep using' })
+  )
   await user.click(screen.getByRole('tab', { name: /Connection & Models/ }))
   expect(quick.getByRole('switch', { name: 'Pass Through Body' })).toBeChecked()
   expect(
@@ -1230,6 +1240,56 @@ test('quick options and detailed settings share changes across tabs and save the
     upstream_model_update_check_enabled: true,
     upstream_model_update_auto_sync_enabled: true,
   })
+})
+
+test('creating a channel keeps global auto-disable rules selected until an explicit opt-out is saved', async () => {
+  const post = vi
+    .spyOn(api, 'post')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness />)
+  await user.click(await screen.findByRole('option', { name: /Video A/ }))
+  await user.type(screen.getByLabelText('API Key *'), 'channel-key')
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  const autoBan = screen.getByRole('combobox', { name: 'Auto Ban' })
+  expect(autoBan).toHaveTextContent('Follow global auto-disable rules')
+  await user.click(autoBan)
+  await user.click(
+    screen.getByRole('option', { name: 'Do not auto-disable; keep using' })
+  )
+  await user.click(screen.getByRole('button', { name: 'Create Channel' }))
+  await waitFor(() => expect(post).toHaveBeenCalled())
+  expect(post.mock.calls[0]?.[1]).toMatchObject({ channel: { auto_ban: 0 } })
+})
+
+test('wide quick options stay synchronized with the auto-disable choice and save an opt-out', async () => {
+  useWideScreen()
+  editingChannel.auto_ban = 0
+  const put = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = userEvent.setup()
+  render(<ConfigurationHarness currentRow={editingChannel} />)
+  await screen.findByDisplayValue('Existing channel')
+  const quick = within(screen.getByRole('group', { name: 'Quick options' }))
+  const toggle = quick.getByRole('switch', { name: 'Auto-disable channel' })
+  expect(toggle).not.toBeChecked()
+  expect(quick.getByText('Do not auto-disable; keep using')).toBeVisible()
+  await user.click(screen.getByRole('tab', { name: /Routing & Mapping/ }))
+  const autoBan = screen.getByRole('combobox', { name: 'Auto Ban' })
+  expect(autoBan).toHaveTextContent('Do not auto-disable; keep using')
+  await user.click(toggle)
+  expect(autoBan).toHaveTextContent('Follow global auto-disable rules')
+  await user.click(autoBan)
+  await user.click(
+    screen.getByRole('option', { name: 'Do not auto-disable; keep using' })
+  )
+  expect(toggle).not.toBeChecked()
+  expect(quick.getByText('Do not auto-disable; keep using')).toBeVisible()
+  await user.click(screen.getByRole('button', { name: 'Update Channel' }))
+  await waitFor(() => expect(put).toHaveBeenCalled())
+  expect(put.mock.calls[0]?.[1]).toMatchObject({ id: 42, auto_ban: 0 })
+  expect(put.mock.calls[0]?.[1]).not.toHaveProperty('status')
 })
 
 test.each(['stacked', 'inline'])(
@@ -1555,7 +1615,11 @@ test('restoring routing defaults clears the configured indicator for both the bl
   const block = screen.getByRole('group', { name: 'Routing Strategy' })
   expect(within(block).getByRole('img', { name: 'Configured' })).toBeVisible()
   expect(block).toHaveClass('border-primary/35')
-  await user.click(screen.getByRole('switch', { name: 'Auto Ban' }))
+  const autoBan = screen.getByRole('combobox', { name: 'Auto Ban' })
+  expect(autoBan).toHaveTextContent('Do not auto-disable; keep using')
+  autoBan.focus()
+  await user.keyboard('{Enter}{Home}{Enter}')
+  expect(autoBan).toHaveTextContent('Follow global auto-disable rules')
   expect(tab).not.toHaveAccessibleName(/Configured/)
   expect(
     within(block).queryByRole('img', { name: 'Configured' })

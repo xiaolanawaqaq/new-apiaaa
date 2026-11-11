@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/pkg/wsmanager"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -26,12 +28,22 @@ func setupChannelHealthTestDB(t *testing.T) *gorm.DB {
 	model.DB, model.LOG_DB = db, db
 	require.NoError(t, db.AutoMigrate(&model.Channel{}))
 	require.NoError(t, db.AutoMigrate(&model.Ability{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}))
 	previousDisableFlag := common.AutomaticDisableChannelEnabled
-	common.AutomaticDisableChannelEnabled = false
+	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
+	previousThreshold, previousProbeInterval := common.ChannelFailureThreshold, common.ChannelHealthProbeIntervalSeconds
+	common.AutomaticDisableChannelEnabled = true
+	common.MemoryCacheEnabled, common.RedisEnabled = false, false
+	common.ChannelFailureThreshold, common.ChannelHealthProbeIntervalSeconds = 3, 60
 	t.Cleanup(func() {
 		model.DB, model.LOG_DB = previousDB, previousLogDB
 		common.SetDatabaseTypes(previousMainDatabaseType, previousLogDatabaseType)
 		common.AutomaticDisableChannelEnabled = previousDisableFlag
+		common.MemoryCacheEnabled, common.RedisEnabled = previousCache, previousRedis
+		common.ChannelFailureThreshold, common.ChannelHealthProbeIntervalSeconds = previousThreshold, previousProbeInterval
+		sqlDB, err := db.DB()
+		require.NoError(t, err)
+		require.NoError(t, sqlDB.Close())
 	})
 	return db
 }
@@ -203,6 +215,135 @@ func TestMarkChannelProbedPostponesAndClears(t *testing.T) {
 	assert.Equal(t, 0, health.ConsecutiveFailures)
 	assert.Equal(t, "", health.Classification)
 	assert.Zero(t, health.NextProbeTime)
+}
+
+func TestRecordChannelFailureSkipsDisabledPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		globalEnabled bool
+		autoBan       *int
+		status        int
+	}{
+		{name: "global off", autoBan: common.GetPointer(1), status: common.ChannelStatusEnabled},
+		{name: "latest channel opted out", globalEnabled: true, autoBan: common.GetPointer(0), status: common.ChannelStatusEnabled},
+		{name: "unset auto ban", globalEnabled: true, status: common.ChannelStatusEnabled},
+		{name: "manual disable is preserved", globalEnabled: true, autoBan: common.GetPointer(1), status: common.ChannelStatusManuallyDisabled},
+		{name: "opt out does not enable old disabled channel", globalEnabled: true, autoBan: common.GetPointer(0), status: common.ChannelStatusAutoDisabled},
+	} {
+		for _, failure := range []struct {
+			classification string
+			err            *types.NewAPIError
+		}{
+			{ChannelErrorTemporary, newStatusError(502, "bad gateway")},
+			{ChannelErrorBalanceExhausted, newStatusError(402, "insufficient balance")},
+		} {
+			t.Run(tc.name+"/"+failure.classification, func(t *testing.T) {
+				db := setupChannelHealthTestDB(t)
+				channel := createHealthTestChannel(t, db)
+				writeChannelHealth(channel, channelHealth{ConsecutiveFailures: 2, LastFailureTime: 1234, Classification: ChannelErrorTemporary})
+				require.NoError(t, db.Model(channel).Update("other_info", channel.OtherInfo).Error)
+				// Keep the in-flight snapshot enabled and opted in while the saved policy changes.
+				require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Updates(map[string]any{
+					"auto_ban": tc.autoBan,
+					"status":   tc.status,
+				}).Error)
+				common.AutomaticDisableChannelEnabled = tc.globalEnabled
+
+				for range 3 {
+					classification, disabled := RecordChannelFailure(channel, failure.err)
+					assert.Equal(t, failure.classification, classification)
+					assert.False(t, disabled)
+				}
+				stored, err := model.GetChannelById(channel.Id, true)
+				require.NoError(t, err)
+				assert.Equal(t, tc.status, stored.Status)
+				assert.Equal(t, channel.OtherInfo, stored.OtherInfo, "no count, disable reason, or probe may be written")
+				assert.Equal(t, tc.autoBan, stored.AutoBan)
+			})
+		}
+	}
+}
+
+func TestRecordChannelFailureFailsClosedOnLoadError(t *testing.T) {
+	db := setupChannelHealthTestDB(t)
+	channel := createHealthTestChannel(t, db)
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("channel_health_load_failure", func(tx *gorm.DB) {
+		if tx.Statement.Table == "channels" {
+			tx.AddError(errors.New("channel load failed"))
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Query().Remove("channel_health_load_failure")) })
+
+	classification, disabled := RecordChannelFailure(channel, newStatusError(402, "insufficient balance"))
+	assert.Equal(t, ChannelErrorBalanceExhausted, classification)
+	assert.False(t, disabled)
+	assert.Empty(t, channel.OtherInfo, "must not fall back to and mutate the stale snapshot")
+	require.NoError(t, db.Callback().Query().Remove("channel_health_load_failure"))
+	stored, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+	assert.Empty(t, stored.OtherInfo)
+}
+
+func TestRecordChannelFailureDoesNotScheduleProbeWhenDisableFails(t *testing.T) {
+	db := setupChannelHealthTestDB(t)
+	channel := createHealthTestChannel(t, db)
+	common.ChannelFailureThreshold = 1
+	require.NoError(t, db.Callback().Update().Before("gorm:update").Register("channel_health_status_failure", func(tx *gorm.DB) {
+		if updates, ok := tx.Statement.Dest.(map[string]any); ok && tx.Statement.Table == "channels" {
+			if _, changingStatus := updates["status"]; changingStatus {
+				tx.AddError(errors.New("channel status update failed"))
+			}
+		}
+	}))
+	t.Cleanup(func() { require.NoError(t, db.Callback().Update().Remove("channel_health_status_failure")) })
+
+	classification, disabled := RecordChannelFailure(channel, newStatusError(502, "bad gateway"))
+	assert.Equal(t, ChannelErrorTemporary, classification)
+	assert.False(t, disabled)
+	stored, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+	health := readChannelHealth(stored)
+	assert.Equal(t, 1, health.ConsecutiveFailures)
+	assert.Empty(t, health.DisabledReason)
+	assert.Zero(t, health.NextProbeTime)
+}
+
+func TestDisableChannelSkippedHasNoSideEffects(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		globalEnabled bool
+		snapshotBan   bool
+		savedBan      int
+	}{
+		{name: "global off", snapshotBan: true, savedBan: 1},
+		{name: "snapshot opted out", globalEnabled: true, savedBan: 1},
+		{name: "saved channel opted out", globalEnabled: true, snapshotBan: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupChannelHealthTestDB(t)
+			channel := createHealthTestChannel(t, db)
+			require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", channel.Id).Update("auto_ban", tc.savedBan).Error)
+			common.AutomaticDisableChannelEnabled = tc.globalEnabled
+			closed := false
+			t.Cleanup(wsmanager.Register(channel.Id, wsmanager.KindResponses, func(string) { closed = true }))
+			root := &model.User{Username: "channel-watch-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled}
+			require.NoError(t, db.Create(root).Error)
+			notifyKey := fmt.Sprintf("%d:%s:%s", root.Id, formatNotifyType(channel.Id, common.ChannelStatusAutoDisabled), time.Now().Format("2006010215"))
+			notifyLimitStore.Delete(notifyKey)
+			t.Cleanup(func() { notifyLimitStore.Delete(notifyKey) })
+
+			DisableChannel(types.ChannelError{ChannelId: channel.Id, ChannelName: channel.Name, AutoBan: tc.snapshotBan}, "Insufficient balance")
+			stored, err := model.GetChannelById(channel.Id, true)
+			require.NoError(t, err)
+			assert.Equal(t, common.ChannelStatusEnabled, stored.Status)
+			assert.Empty(t, stored.OtherInfo)
+			assert.False(t, closed)
+			_, notified := notifyLimitStore.Load(notifyKey)
+			assert.False(t, notified)
+		})
+	}
 }
 
 func TestChannelFailureThresholdConfig(t *testing.T) {

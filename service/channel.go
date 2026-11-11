@@ -25,26 +25,29 @@ func shouldCloseActiveWebSocketsAfterDisable(channelId int) bool {
 	return channel.Status != common.ChannelStatusEnabled
 }
 
-// disable & notify
-func DisableChannel(channelError types.ChannelError, reason string) {
-	common.SysLog(common.LogText("channel %q (#%d) failed, disabling it, reason: %s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(reason)))
-
-	// 检查是否启用自动禁用功能
+// DisableChannel automatically disables a channel or key and notifies only on change.
+func DisableChannel(channelError types.ChannelError, reason string) bool {
+	if !common.AutomaticDisableChannelEnabled {
+		return false
+	}
 	if !channelError.AutoBan {
 		common.SysLog(common.LogText("channel %q (#%d) has automatic disabling turned off, skipping", channelError.ChannelName, channelError.ChannelId))
-		return
+		return false
 	}
 
-	success := model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason)
-	if success {
-		if shouldCloseActiveWebSocketsAfterDisable(channelError.ChannelId) {
-			CloseActiveWebSocketsForChannel(channelError.ChannelId, ChannelDisabledCloseReason)
-		}
-		params := map[string]any{"Name": channelError.ChannelName, "Id": channelError.ChannelId, "Reason": reason}
-		NotifyChannelWatchers(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), func(lang string) (string, string) {
-			return i18n.Translate(lang, i18n.MsgChannelNotifyDisabledSubject, params), i18n.Translate(lang, i18n.MsgChannelNotifyDisabledContent, params)
-		})
+	// UpdateChannelStatus checks the saved policy before changing status or cache.
+	if !model.UpdateChannelStatus(channelError.ChannelId, channelError.UsingKey, common.ChannelStatusAutoDisabled, reason) {
+		return false
 	}
+	common.SysLog(common.LogText("channel %q (#%d) failed, disabling it, reason: %s", channelError.ChannelName, channelError.ChannelId, common.LocalLogPreview(reason)))
+	if shouldCloseActiveWebSocketsAfterDisable(channelError.ChannelId) {
+		CloseActiveWebSocketsForChannel(channelError.ChannelId, ChannelDisabledCloseReason)
+	}
+	params := map[string]any{"Name": channelError.ChannelName, "Id": channelError.ChannelId, "Reason": reason}
+	NotifyChannelWatchers(formatNotifyType(channelError.ChannelId, common.ChannelStatusAutoDisabled), func(lang string) (string, string) {
+		return i18n.Translate(lang, i18n.MsgChannelNotifyDisabledSubject, params), i18n.Translate(lang, i18n.MsgChannelNotifyDisabledContent, params)
+	})
+	return true
 }
 
 func EnableChannel(channelId int, usingKey string, channelName string) {

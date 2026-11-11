@@ -756,6 +756,24 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 	pollingLock.Lock()
 	defer pollingLock.Unlock()
 
+	channel, err := GetChannelById(channelId, true)
+	if err != nil {
+		return false
+	}
+	if status == common.ChannelStatusAutoDisabled {
+		// An in-flight failure must respect the saved opt-out and manual states
+		// before touching either the channel/key cache or the stored status.
+		if !channel.GetAutoBan() || channel.Status == common.ChannelStatusManuallyDisabled {
+			return false
+		}
+		if channel.ChannelInfo.IsMultiKey && usingKey != "" {
+			keyIndex := slices.Index(channel.GetKeys(), usingKey)
+			if keyIndex >= 0 && channel.ChannelInfo.MultiKeyStatusList[keyIndex] == common.ChannelStatusManuallyDisabled {
+				return false
+			}
+		}
+	}
+
 	if common.MemoryCacheEnabled {
 		channelCache, _ := CacheGetChannel(channelId)
 		if channelCache == nil {
@@ -763,8 +781,16 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 		}
 		// A request failure must not replace an admin's manual disable;
 		// otherwise automatic recovery could re-enable the channel later.
-		if status == common.ChannelStatusAutoDisabled && channelCache.Status == common.ChannelStatusManuallyDisabled {
-			return false
+		if status == common.ChannelStatusAutoDisabled {
+			if channelCache.Status == common.ChannelStatusManuallyDisabled {
+				return false
+			}
+			if channelCache.ChannelInfo.IsMultiKey && usingKey != "" {
+				keyIndex := slices.Index(channelCache.GetKeys(), usingKey)
+				if keyIndex >= 0 && channelCache.ChannelInfo.MultiKeyStatusList[keyIndex] == common.ChannelStatusManuallyDisabled {
+					return false
+				}
+			}
 		}
 		if channelCache.ChannelInfo.IsMultiKey {
 			beforeStatus := channelCache.Status
@@ -793,42 +819,33 @@ func UpdateChannelStatus(channelId int, usingKey string, status int, reason stri
 			}
 		}
 	}()
-	channel, err := GetChannelById(channelId, true)
-	if err != nil {
+	// A manual channel operation must replace the exhaustion reason even
+	// when the status value is already manually disabled.
+	overridesKeyExhaustion := channel.ChannelInfo.IsMultiKey && usingKey == "" &&
+		status == common.ChannelStatusManuallyDisabled && reason != ChannelStatusReasonAllKeysDisabled &&
+		channel.GetOtherInfo()["status_reason"] == ChannelStatusReasonAllKeysDisabled
+	if channel.Status == status && !overridesKeyExhaustion {
 		return false
-	} else {
-		// Check the stored row too, since this node's cache may be stale.
-		if status == common.ChannelStatusAutoDisabled && channel.Status == common.ChannelStatusManuallyDisabled {
-			return false
-		}
-		// A manual channel operation must replace the exhaustion reason even
-		// when the status value is already manually disabled.
-		overridesKeyExhaustion := channel.ChannelInfo.IsMultiKey && usingKey == "" &&
-			status == common.ChannelStatusManuallyDisabled && reason != ChannelStatusReasonAllKeysDisabled &&
-			channel.GetOtherInfo()["status_reason"] == ChannelStatusReasonAllKeysDisabled
-		if channel.Status == status && !overridesKeyExhaustion {
-			return false
-		}
+	}
 
-		if channel.ChannelInfo.IsMultiKey {
-			beforeStatus := channel.Status
-			handlerMultiKeyUpdate(channel, usingKey, status, reason)
-			if beforeStatus != channel.Status {
-				shouldUpdateAbilities = true
-			}
-		} else {
-			info := channel.GetOtherInfo()
-			info["status_reason"] = reason
-			info["status_time"] = common.GetTimestamp()
-			channel.SetOtherInfo(info)
-			channel.Status = status
+	if channel.ChannelInfo.IsMultiKey {
+		beforeStatus := channel.Status
+		handlerMultiKeyUpdate(channel, usingKey, status, reason)
+		if beforeStatus != channel.Status {
 			shouldUpdateAbilities = true
 		}
-		err = channel.saveStatusState()
-		if err != nil {
-			common.SysLog(common.LogText("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
-			return false
-		}
+	} else {
+		info := channel.GetOtherInfo()
+		info["status_reason"] = reason
+		info["status_time"] = common.GetTimestamp()
+		channel.SetOtherInfo(info)
+		channel.Status = status
+		shouldUpdateAbilities = true
+	}
+	err = channel.saveStatusState()
+	if err != nil {
+		common.SysLog(common.LogText("failed to update channel status: channel_id=%d, status=%d, error=%v", channel.Id, status, err))
+		return false
 	}
 	return true
 }

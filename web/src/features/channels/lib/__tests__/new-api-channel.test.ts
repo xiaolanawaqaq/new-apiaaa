@@ -20,6 +20,7 @@ import { describe, expect, test } from 'vitest'
 
 import type { TaskPluginOption } from '../../api'
 import {
+  CHANNEL_STATUS,
   CHANNEL_TYPE_NEW_API,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
@@ -32,6 +33,7 @@ import {
   channelFormSchema,
   transformChannelToFormDefaults,
   transformFormDataToCreatePayload,
+  transformFormDataToUpdatePayload,
 } from '../channel-form'
 import {
   getChannelPluginExtensions,
@@ -93,6 +95,62 @@ describe('New API channel', () => {
       channelFormSchema.safeParse(newAPIForm('https://new-api.example')).success
     ).toBe(true)
   })
+
+  test.each([
+    { autoBan: 0, expected: 0 },
+    { autoBan: 1, expected: 1 },
+    { autoBan: undefined, expected: 1 },
+    { autoBan: null, expected: 1 },
+  ])(
+    'preserves auto_ban $autoBan through load, create, update and reload',
+    ({ autoBan, expected }) => {
+      const channel = channelSchema.parse({
+        ...newAPIForm('https://new-api.example'),
+        id: 42,
+        group: 'default',
+        auto_ban: autoBan,
+        created_time: 1,
+        test_time: 0,
+        response_time: 0,
+        balance_updated_time: 0,
+      })
+      const values = transformChannelToFormDefaults(channel)
+      expect(values.auto_ban).toBe(expected)
+      for (const payload of [
+        transformFormDataToCreatePayload(values).channel,
+        transformFormDataToUpdatePayload(values, channel.id),
+      ]) {
+        expect(payload.auto_ban).toBe(expected)
+        expect(
+          transformChannelToFormDefaults({ ...channel, ...payload }).auto_ban
+        ).toBe(expected)
+      }
+    }
+  )
+
+  test.each([CHANNEL_STATUS.MANUAL_DISABLED, CHANNEL_STATUS.AUTO_DISABLED])(
+    'opting out does not re-enable a channel with status %s',
+    (status) => {
+      const channel = channelSchema.parse({
+        ...newAPIForm('https://new-api.example'),
+        id: 42,
+        group: 'default',
+        status,
+        auto_ban: 1,
+        created_time: 1,
+        test_time: 0,
+        response_time: 0,
+        balance_updated_time: 0,
+      })
+      const values = { ...transformChannelToFormDefaults(channel), auto_ban: 0 }
+      const payload = transformFormDataToUpdatePayload(values, channel.id)
+      expect(payload.auto_ban).toBe(0)
+      expect(payload).not.toHaveProperty('status')
+      expect(
+        transformChannelToFormDefaults({ ...channel, ...payload }).status
+      ).toBe(status)
+    }
+  )
 
   test('keeps Sub2API Base URL validation unchanged', () => {
     const result = channelFormSchema.safeParse({

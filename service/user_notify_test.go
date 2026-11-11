@@ -103,6 +103,7 @@ func TestQuotaReminderFiresOncePerDrop(t *testing.T) {
 func TestChannelNoticesFollowEachAdministratorsSwitch(t *testing.T) {
 	previousDB := model.DB
 	previousCache, previousRedis := common.MemoryCacheEnabled, common.RedisEnabled
+	previousAutoDisable := common.AutomaticDisableChannelEnabled
 	previousNotifyLimit := constant.NotifyLimitCount
 	previousClient, previousWorker := httpClient, system_setting.WorkerUrl
 	fetch := system_setting.GetFetchSetting()
@@ -110,6 +111,7 @@ func TestChannelNoticesFollowEachAdministratorsSwitch(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.MemoryCacheEnabled, common.RedisEnabled = previousCache, previousRedis
+		common.AutomaticDisableChannelEnabled = previousAutoDisable
 		constant.NotifyLimitCount = previousNotifyLimit
 		httpClient, system_setting.WorkerUrl = previousClient, previousWorker
 		*fetch = previousFetch
@@ -123,6 +125,7 @@ func TestChannelNoticesFollowEachAdministratorsSwitch(t *testing.T) {
 	require.NoError(t, database.AutoMigrate(&model.Channel{}, &model.Ability{}, &model.User{}))
 	model.DB = database
 	common.MemoryCacheEnabled, common.RedisEnabled = false, false
+	common.AutomaticDisableChannelEnabled = true
 	constant.NotifyLimitCount = 100
 
 	var mutex sync.Mutex
